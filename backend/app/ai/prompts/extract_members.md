@@ -29,7 +29,8 @@ millimetres, exactly as read. Every member carries: label, count, confidence
 - footing: {member_type, label, count, length_mm, breadth_mm, depth_mm,
             concrete_grade, mesh_bottom_x:{dia_mm,spacing_mm}, mesh_bottom_y:{dia_mm,spacing_mm}}
 - slab:    {member_type, label, count, length_mm, breadth_mm, thickness_mm,
-            concrete_grade, main_bars:{dia_mm,spacing_mm}, dist_bars:{dia_mm,spacing_mm}}
+            concrete_grade, main_bars:{dia_mm,spacing_mm}, dist_bars:{dia_mm,spacing_mm},
+            bent_up_bars:{dia_mm,spacing_mm}}
 - rcc_wall:{member_type, label, count, length_mm, height_mm, thickness_mm, concrete_grade}
 - brick_wall:{member_type, label, count, length_mm, height_mm, thickness_mm,
             openings:[{width_mm,height_mm,count}]}

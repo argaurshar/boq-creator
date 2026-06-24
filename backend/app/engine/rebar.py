@@ -35,6 +35,15 @@ def _straight_bar_cut_length(clear_m: float, cover_m: float, dia_mm: float,
     return base + _laps_extra(base, dia_mm)
 
 
+def crank_extra(d_eff_m: float, n_cranks: int = 2) -> float:
+    """Extra length for a cranked / bent-up bar: 0.42*D per 45-deg crank (SP 34).
+
+    `d_eff_m` is the vertical offset of the crank (≈ member depth between the
+    top and bottom layers). A typical bent-up slab bar is cranked at both ends.
+    """
+    return n_cranks * mat.CRANK_EXTRA_FACTOR * max(d_eff_m, 0.0)
+
+
 def _stirrup_cut_length(a_m: float, b_m: float, dia_mm: float) -> float:
     """Rectangular stirrup: 2(a+b) + 2 hooks(9d) - 3 bends(2d) at 90 deg."""
     d = mm_to_m(dia_mm)
@@ -47,9 +56,12 @@ def _stirrup_cut_length(a_m: float, b_m: float, dia_mm: float) -> float:
 def _stirrup_count(span_m: float, cover_m: float, spacing_mm: float | None,
                    zones) -> int:
     if zones:
+        # Round per zone (not floor) so the stirrup at each zone boundary isn't
+        # systematically dropped; +1 for the single shared end bar.
         total = 0
         for z in zones:
-            total += int(mm_to_m(z.length_mm) // mm_to_m(z.spacing_mm))
+            if z.spacing_mm and z.spacing_mm > 0:
+                total += round(mm_to_m(z.length_mm) / mm_to_m(z.spacing_mm))
         return total + 1
     if spacing_mm:
         usable = max(span_m - 2 * cover_m, 0.0)
@@ -123,15 +135,16 @@ def beam(m) -> list[Quantity]:
     return [_summarise(rows, f"beam {m.label}", m.count)] if rows else []
 
 
-def _mesh_rows(mark, mesh, span_along_m, bar_len_m, cover_m):
+def _mesh_rows(mark, mesh, span_along_m, bar_len_m, cover_m, crank_extra_m=0.0):
     """A mat of bars: count across `span_along_m`, each `bar_len_m` long.
 
     Deformed (Fe500) mesh bars are detailed straight (no 180-deg hooks); stock
     laps are added for bars longer than the stock length. Schema guarantees
-    spacing_mm > 0, so the floor division is safe.
+    spacing_mm > 0, so the floor division is safe. `crank_extra_m` adds the
+    bent-up crank allowance when the mesh represents bent-up bars.
     """
     n = int(max(span_along_m - 2 * cover_m, 0.0) // mm_to_m(mesh.spacing_mm)) + 1
-    cut = max(bar_len_m - 2 * cover_m, 0.0)
+    cut = max(bar_len_m - 2 * cover_m, 0.0) + crank_extra_m
     cut += _laps_extra(cut, mesh.dia_mm)
     return _bbs_row(mark, mesh.dia_mm, n, cut)[0]
 
@@ -155,4 +168,8 @@ def slab(m) -> list[Quantity]:
         rows.append(_mesh_rows(f"{m.label}-Main", m.main_bars, L, B, cover))
     if m.dist_bars:
         rows.append(_mesh_rows(f"{m.label}-Dist", m.dist_bars, B, L, cover))
+    if m.bent_up_bars:                        # cranked at both ends over supports
+        d_eff = mm_to_m(m.thickness_mm) - 2 * cover
+        rows.append(_mesh_rows(f"{m.label}-BentUp", m.bent_up_bars, L, B, cover,
+                               crank_extra(d_eff)))
     return [_summarise(rows, f"slab {m.label}", m.count)] if rows else []

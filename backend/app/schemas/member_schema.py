@@ -110,6 +110,7 @@ class Slab(_MemberBase):
     thickness_mm: float
     main_bars: BarMesh | None = None
     dist_bars: BarMesh | None = None
+    bent_up_bars: BarMesh | None = None      # cranked-up bars over supports
     opening_area_m2: float = 0.0
 
 
