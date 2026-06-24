@@ -119,5 +119,10 @@ export const api = {
       j<any>(r)
     ),
 
+  seedDemo: (pid: number) =>
+    fetch(`/api/projects/${pid}/seed`, { method: "POST" }).then((r) =>
+      j<{ seeded_members: number }>(r)
+    ),
+
   exportUrl: (pid: number) => `/api/projects/${pid}/export/xlsx`,
 };

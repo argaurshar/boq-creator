@@ -89,6 +89,20 @@ def test_rates_and_amounts():
     assert boq["grand_total"] >= 9600.0
 
 
+def test_demo_seed_populates_all_categories():
+    pid = _new_project()
+    res = client.post(f"/api/projects/{pid}/seed").json()
+    assert res["seeded_members"] >= 8
+    boq = client.get(f"/api/projects/{pid}/boq").json()
+    cats = {g["category"] for g in boq["groups"]}
+    # every department should appear in the demo BOQ
+    assert {"earthwork", "concrete", "formwork", "rebar", "steel",
+            "masonry", "plaster"} <= cats
+    assert boq["grand_total"] > 0
+    # demo members are pre-verified
+    assert all(m["is_verified"] for m in client.get(f"/api/projects/{pid}/members").json())
+
+
 def test_excel_export():
     pid = _new_project()
     client.post(f"/api/projects/{pid}/members", json={

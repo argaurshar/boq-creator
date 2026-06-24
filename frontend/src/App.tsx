@@ -150,6 +150,24 @@ function LeftPanel({
             onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
           />
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
+          <div style={{ marginTop: 10 }} className="muted small">
+            No drawing handy?
+          </div>
+          <button
+            style={{ marginTop: 4 }}
+            onClick={async () => {
+              setBusy("Loading demo data…");
+              try {
+                const res = await api.seedDemo(pid);
+                setBusy(`Loaded demo: ${res.seeded_members} elements.`);
+                onChange();
+              } catch (e: any) {
+                setBusy("Error: " + e.message);
+              }
+            }}
+          >
+            Load demo data
+          </button>
         </div>
 
         <ManualAdd pid={pid} onChange={onChange} />

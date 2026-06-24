@@ -391,3 +391,61 @@ def nl_edit_apply(pid: int, body: dict[str, Any], db: Session = Depends(get_db))
     db.commit()
     db.refresh(row)
     return _member_dict(row)
+
+
+# --------------------------------------------------------------------------- #
+# Demo seed — populate a representative multi-category BOQ in one click
+# --------------------------------------------------------------------------- #
+_DEMO_MEMBERS: list[dict[str, Any]] = [
+    {"member_type": "earthwork_pit", "label": "E1", "length_mm": 2000,
+     "breadth_mm": 2000, "depth_mm": 1500, "count": 4, "working_offset_mm": 150,
+     "embedded_structure_m3": 1.7},
+    {"member_type": "pcc", "label": "PCC1", "length_mm": 2000, "breadth_mm": 2000,
+     "thickness_mm": 100, "count": 4},
+    {"member_type": "footing", "label": "F1", "length_mm": 2000, "breadth_mm": 2000,
+     "depth_mm": 400, "count": 4, "mesh_bottom_x": {"dia_mm": 12, "spacing_mm": 150},
+     "mesh_bottom_y": {"dia_mm": 12, "spacing_mm": 150}},
+    {"member_type": "column", "label": "C1", "b_mm": 300, "D_mm": 600,
+     "height_mm": 3000, "count": 4, "main_bars": [{"dia_mm": 16, "count": 8}],
+     "ties": {"dia_mm": 8, "legs": 2, "spacing_mm": 150}},
+    {"member_type": "beam", "label": "B1", "b_mm": 230, "depth_mm": 450,
+     "clear_span_mm": 4500, "count": 6,
+     "top_bars": [{"dia_mm": 16, "count": 2}],
+     "bottom_bars": [{"dia_mm": 16, "count": 3}],
+     "stirrups": {"dia_mm": 8, "legs": 2, "spacing_mm": 150}},
+    {"member_type": "slab", "label": "S1", "length_mm": 4500, "breadth_mm": 4000,
+     "thickness_mm": 125, "count": 1,
+     "main_bars": {"dia_mm": 10, "spacing_mm": 150},
+     "dist_bars": {"dia_mm": 8, "spacing_mm": 200}},
+    {"member_type": "brick_wall", "label": "W1", "length_mm": 4500, "height_mm": 3000,
+     "thickness_mm": 230, "count": 4,
+     "openings": [{"width_mm": 1000, "height_mm": 2100, "count": 1}]},
+    {"member_type": "plaster_surface", "label": "P1", "length_mm": 4500,
+     "height_mm": 3000, "faces": 2, "thickness_mm": 12, "count": 4,
+     "openings": [{"width_mm": 1000, "height_mm": 2100, "count": 1}]},
+    {"member_type": "steel_member", "label": "ST1", "designation": "ISMB300",
+     "length_mm": 6000, "count": 8},
+]
+
+_DEMO_RATES = {"earthwork": 350, "concrete": 6500, "formwork": 450, "rebar": 75,
+               "steel": 90, "masonry": 6000, "plaster": 280}
+
+
+@router.post("/projects/{pid}/seed")
+def seed_demo(pid: int, db: Session = Depends(get_db)):
+    """Populate the project with a representative G+0 frame so reviewers can see
+    a full multi-category BOQ + Excel export without uploading a drawing."""
+    _get_project(db, pid)
+    added = 0
+    for raw in _DEMO_MEMBERS:
+        m = services.validate_member({**raw, "source": "manual"})
+        db.add(Member(project_id=pid, member_type=m.member_type, label=m.label,
+                      params=m.model_dump(), source="manual", confidence=1.0,
+                      is_verified=True))
+        added += 1
+    for cat, rate in _DEMO_RATES.items():
+        if not db.query(Rate).filter_by(project_id=pid, category=cat).first():
+            db.add(Rate(project_id=pid, category=cat, rate=rate,
+                        unit=DEFAULT_UNITS.get(cat, "")))
+    db.commit()
+    return {"seeded_members": added}
