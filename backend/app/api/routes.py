@@ -399,7 +399,7 @@ def nl_edit_apply(pid: int, body: dict[str, Any], db: Session = Depends(get_db))
 _DEMO_MEMBERS: list[dict[str, Any]] = [
     {"member_type": "earthwork_pit", "label": "E1", "length_mm": 2000,
      "breadth_mm": 2000, "depth_mm": 1500, "count": 4, "working_offset_mm": 150,
-     "embedded_structure_m3": 1.7},
+     "contains_labels": ["F1", "PCC1"]},   # backfill nets footing + PCC volume
     {"member_type": "pcc", "label": "PCC1", "length_mm": 2000, "breadth_mm": 2000,
      "thickness_mm": 100, "count": 4},
     {"member_type": "footing", "label": "F1", "length_mm": 2000, "breadth_mm": 2000,
@@ -419,7 +419,8 @@ _DEMO_MEMBERS: list[dict[str, Any]] = [
      "dist_bars": {"dia_mm": 8, "spacing_mm": 200}},
     {"member_type": "brick_wall", "label": "W1", "length_mm": 4500, "height_mm": 3000,
      "thickness_mm": 230, "count": 4,
-     "openings": [{"width_mm": 1000, "height_mm": 2100, "count": 1}]},
+     "openings": [{"width_mm": 1000, "height_mm": 2100, "count": 1}],
+     "embedded_labels": ["C1"]},           # brickwork nets embedded column RCC
     {"member_type": "plaster_surface", "label": "P1", "length_mm": 4500,
      "height_mm": 3000, "faces": 2, "thickness_mm": 12, "count": 4,
      "openings": [{"width_mm": 1000, "height_mm": 2100, "count": 1}]},

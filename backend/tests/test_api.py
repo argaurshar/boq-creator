@@ -103,6 +103,38 @@ def test_demo_seed_populates_all_categories():
     assert all(m["is_verified"] for m in client.get(f"/api/projects/{pid}/members").json())
 
 
+def test_cross_member_netting():
+    # Footing (1.6 m3) + PCC (0.4 m3) inside a pit -> backfill nets 2.0 m3.
+    # Column (0.54 m3) embedded in a wall -> brickwork nets 0.54 m3.
+    pid = _new_project()
+    client.post(f"/api/projects/{pid}/members", json={
+        "member_type": "footing", "label": "F1", "length_mm": 2000,
+        "breadth_mm": 2000, "depth_mm": 400, "count": 1})
+    client.post(f"/api/projects/{pid}/members", json={
+        "member_type": "pcc", "label": "PCC1", "length_mm": 2000,
+        "breadth_mm": 2000, "thickness_mm": 100, "count": 1})
+    client.post(f"/api/projects/{pid}/members", json={
+        "member_type": "earthwork_pit", "label": "E1", "length_mm": 2000,
+        "breadth_mm": 2000, "depth_mm": 1500, "count": 1,
+        "contains_labels": ["F1", "PCC1"]})
+    client.post(f"/api/projects/{pid}/members", json={
+        "member_type": "column", "label": "C1", "b_mm": 300, "D_mm": 600,
+        "height_mm": 3000, "count": 1})
+    client.post(f"/api/projects/{pid}/members", json={
+        "member_type": "brick_wall", "label": "W1", "length_mm": 3000,
+        "height_mm": 3000, "thickness_mm": 230, "count": 1,
+        "embedded_labels": ["C1"]})
+
+    boq = client.get(f"/api/projects/{pid}/boq").json()
+    items = [it for g in boq["groups"] for it in g["items"]]
+    backfill = next(it for it in items if "backfill" in it["description"].lower())
+    masonry = next(it for it in items if it["category"] == "masonry")
+    # excavation 6.0 - embedded 2.0 = 4.0
+    assert abs(backfill["quantity"] - 4.0) < 0.01
+    # gross 2.07 - embedded column 0.54 = 1.53
+    assert abs(masonry["quantity"] - 1.53) < 0.01
+
+
 def test_excel_export():
     pid = _new_project()
     client.post(f"/api/projects/{pid}/members", json={

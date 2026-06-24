@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from .engine.compute import CATEGORY_ORDER, compute_member
+from .engine.compute import CATEGORY_ORDER, compute_member, concrete_volume
 from .engine.units import round_qty
 from .schemas.member_schema import Member
 
@@ -27,6 +27,24 @@ def member_to_dict(m: Member) -> dict[str, Any]:
     return m.model_dump()
 
 
+def _apply_netting(m: Member, vol_by_label: dict[str, float]) -> Member:
+    """Resolve cross-member links into per-unit embedded volumes.
+
+    Keeps the engine a pure function of a single member: the linkage is computed
+    here and injected as the member's embedded_* field. Embedded totals are
+    divided by the member's count because the engine applies the field per unit
+    and then multiplies by count.
+    """
+    labels = getattr(m, "contains_labels", None) or getattr(m, "embedded_labels", None)
+    if not labels:
+        return m
+    total = sum(vol_by_label.get(lbl, 0.0) for lbl in labels)
+    per_unit = total / max(m.count, 1)
+    if getattr(m, "contains_labels", None):
+        return m.model_copy(update={"embedded_structure_m3": per_unit})
+    return m.model_copy(update={"embedded_rcc_m3": per_unit})
+
+
 def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
     """Compute the full BOQ from stored members + a {category: rate} map.
 
@@ -35,6 +53,10 @@ def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
     """
     cat_groups: dict[str, list[dict[str, Any]]] = {c: [] for c, _ in CATEGORY_ORDER}
 
+    # Pass 1: validate everything and map label -> total concrete volume, so the
+    # netting resolver can subtract embedded structure / RCC by reference.
+    validated: list[tuple[Any, Member]] = []
+    vol_by_label: dict[str, float] = {}
     for row in members_orm:
         try:
             member = validate_member(row.params)
@@ -42,8 +64,15 @@ def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
             cat_groups.setdefault("_errors", []).append(
                 {"member_id": row.id, "error": str(exc), "label": row.label})
             continue
+        validated.append((row, member))
+        if member.label:
+            vol_by_label[member.label] = (
+                vol_by_label.get(member.label, 0.0) + concrete_volume(member))
 
-        for q in compute_member(member):
+    # Pass 2: compute quantities, applying netting links.
+    for row, member in validated:
+        effective = _apply_netting(member, vol_by_label)
+        for q in compute_member(effective):
             rate = float(rates.get(q.category, 0.0))
             qty = round_qty(q.value, q.unit)
             cat_groups.setdefault(q.category, []).append({

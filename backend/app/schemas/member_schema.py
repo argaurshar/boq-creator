@@ -135,6 +135,9 @@ class BrickWall(_MemberBase):
     thickness_mm: float
     openings: list[Opening] = Field(default_factory=list)
     embedded_rcc_m3: float = 0.0             # columns/beams/lintels passing through
+    # Labels of RCC members embedded in this wall — when set, their concrete
+    # volume is netted automatically (overrides embedded_rcc_m3).
+    embedded_labels: list[str] = Field(default_factory=list)
 
 
 class PlasterSurface(_MemberBase):
@@ -154,6 +157,10 @@ class EarthworkPit(_MemberBase):
     side_slope: float = 0.0                   # horizontal per unit depth (0 = vertical)
     working_offset_mm: float = 0.0            # extra working space added each side
     embedded_structure_m3: float = 0.0        # footing+pcc volume, for backfill netting
+    # Labels of members (footings, PCC) inside this pit — when set, their
+    # concrete volume is netted from backfill automatically (overrides
+    # embedded_structure_m3).
+    contains_labels: list[str] = Field(default_factory=list)
 
 
 class SteelMember(_MemberBase):

@@ -42,6 +42,15 @@ def compute_all(members) -> list[Quantity]:
     return out
 
 
+def concrete_volume(member) -> float:
+    """Total concrete volume (m3, incl. count) a member contributes.
+
+    Used by the cross-member netting resolver to compute embedded structure
+    volumes (footings/PCC inside an excavation, columns inside a wall).
+    """
+    return sum(q.value for q in compute_member(member) if q.category == "concrete")
+
+
 # Display order + labels for BOQ grouping (CPWD/DSR sequence).
 CATEGORY_ORDER = [
     ("earthwork", "Earthwork"),

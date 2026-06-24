@@ -33,10 +33,13 @@ millimetres, exactly as read. Every member carries: label, count, confidence
             bent_up_bars:{dia_mm,spacing_mm}}
 - rcc_wall:{member_type, label, count, length_mm, height_mm, thickness_mm, concrete_grade}
 - brick_wall:{member_type, label, count, length_mm, height_mm, thickness_mm,
-            openings:[{width_mm,height_mm,count}]}
+            openings:[{width_mm,height_mm,count}], embedded_labels:[labels of RCC
+            members passing through the wall, for automatic deduction]}
 - plaster_surface:{member_type, label, count, length_mm, height_mm, faces, thickness_mm,
             openings:[{width_mm,height_mm,count}]}
-- earthwork_pit:{member_type, label, count, length_mm, breadth_mm, depth_mm, side_slope, working_offset_mm}
+- earthwork_pit:{member_type, label, count, length_mm, breadth_mm, depth_mm, side_slope,
+            working_offset_mm, contains_labels:[labels of footings/PCC inside the pit,
+            for automatic backfill netting]}
 - steel_member:{member_type, label, count, designation, length_mm}
 
 Rules:
