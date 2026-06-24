@@ -51,6 +51,17 @@ STEEL_SECTIONS: dict[str, float] = {
     "ISA100X100X10": 14.9, "ISA130X130X10": 19.7, "ISA150X150X12": 27.3,
     # ISHB
     "ISHB150": 27.1, "ISHB200": 37.3, "ISHB250": 51.0, "ISHB300": 58.8,
+    # ISLB (light beams)
+    "ISLB75": 6.1, "ISLB100": 8.0, "ISLB125": 11.9, "ISLB150": 14.2,
+    "ISLB175": 16.7, "ISLB200": 19.8, "ISLB225": 23.5, "ISLB250": 27.9,
+    "ISLB300": 37.7, "ISLB350": 49.5, "ISLB400": 56.9, "ISLB450": 65.3,
+    "ISLB500": 75.0, "ISLB600": 99.5,
+    # ISWB (wide-flange beams)
+    "ISWB150": 17.0, "ISWB175": 22.1, "ISWB200": 28.8, "ISWB225": 33.9,
+    "ISWB250": 40.9, "ISWB300": 48.1, "ISWB350": 56.9, "ISWB400": 66.7,
+    "ISWB450": 79.7, "ISWB500": 95.2, "ISWB550": 112.5, "ISWB600": 133.7,
+    # more channels
+    "ISMC350": 42.1, "ISMC375": 50.6,
 }
 
 

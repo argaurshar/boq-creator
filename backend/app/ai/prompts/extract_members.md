@@ -36,7 +36,7 @@ millimetres, exactly as read. Every member carries: label, count, confidence
             openings:[{width_mm,height_mm,count}]}
 - plaster_surface:{member_type, label, count, length_mm, height_mm, faces, thickness_mm,
             openings:[{width_mm,height_mm,count}]}
-- earthwork_pit:{member_type, label, count, length_mm, breadth_mm, depth_mm, side_slope}
+- earthwork_pit:{member_type, label, count, length_mm, breadth_mm, depth_mm, side_slope, working_offset_mm}
 - steel_member:{member_type, label, count, designation, length_mm}
 
 Rules:

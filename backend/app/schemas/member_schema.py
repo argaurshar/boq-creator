@@ -152,6 +152,7 @@ class EarthworkPit(_MemberBase):
     breadth_mm: float
     depth_mm: float
     side_slope: float = 0.0                   # horizontal per unit depth (0 = vertical)
+    working_offset_mm: float = 0.0            # extra working space added each side
     embedded_structure_m3: float = 0.0        # footing+pcc volume, for backfill netting
 
 

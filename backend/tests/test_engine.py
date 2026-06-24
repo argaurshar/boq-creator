@@ -121,3 +121,29 @@ def test_steel_unknown_section_is_flagged_not_guessed():
     q = compute_member(m)[0]
     assert q.value == 0.0
     assert "UNKNOWN" in q.description
+
+
+def test_steel_expanded_section_table():
+    # ISLB300 = 37.7 kg/m * 6 m * 1.03 connections = 232.986 kg
+    m = SteelMember(label="ST3", designation="ISLB300", length_mm=6000,
+                    connection_pct=3.0)
+    q = compute_member(m)[0]
+    assert approx(q.value, 232.986)
+
+
+def test_half_brick_wall_measured_in_m2():
+    # IS 1200: 115 mm (half-brick) partitions are measured in m2, not m3.
+    m = BrickWall(label="HW1", length_mm=3000, height_mm=3000, thickness_mm=115,
+                  openings=[Opening(width_mm=1000, height_mm=2100)])
+    q = compute_member(m)[0]
+    assert q.unit == "m2"
+    # 9.0 gross area - 2.1 opening = 6.9 m2
+    assert approx(q.value, 6.9)
+
+
+def test_earthwork_working_offset_widens_dig():
+    m = EarthworkPit(label="E3", length_mm=2000, breadth_mm=2000, depth_mm=1500,
+                     working_offset_mm=150)
+    exc = [q for q in compute_member(m) if "excavation" in q.description.lower()][0]
+    # (2.0 + 0.3) x (2.0 + 0.3) x 1.5 = 7.935 m3
+    assert approx(exc.value, 7.935)

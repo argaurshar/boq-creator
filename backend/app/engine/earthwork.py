@@ -14,6 +14,9 @@ def earthwork_pit(m) -> list[Quantity]:
     L, B, D = mm_to_m(m.length_mm), mm_to_m(m.breadth_mm), mm_to_m(m.depth_mm)
     n = m.count
     s = m.side_slope
+    # Working space widens the dig on every side (added to the bottom plan dims).
+    off = mm_to_m(m.working_offset_mm)
+    L, B = L + 2 * off, B + 2 * off
 
     if s and s > 0:
         # Prismoidal: V = D/6 * (A_top + 4*A_mid + A_bottom)
