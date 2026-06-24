@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback } from "react";
 import { api, Boq, BoqItem, Project, RateRow, Member } from "./api";
 
 const INR = (n: number) =>
@@ -10,25 +10,34 @@ export default function App() {
   const [boq, setBoq] = useState<Boq | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [rates, setRates] = useState<RateRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const project = projects.find((p) => p.id === pid) || null;
 
   const refresh = useCallback(async (id: number) => {
-    const [b, m, r] = await Promise.all([
-      api.getBoq(id),
-      api.listMembers(id),
-      api.listRates(id),
-    ]);
-    setBoq(b);
-    setMembers(m);
-    setRates(r);
+    try {
+      const [b, m, r] = await Promise.all([
+        api.getBoq(id),
+        api.listMembers(id),
+        api.listRates(id),
+      ]);
+      setBoq(b);
+      setMembers(m);
+      setRates(r);
+      setError(null);
+    } catch (e: any) {
+      setError("Failed to load project data: " + e.message);
+    }
   }, []);
 
   useEffect(() => {
-    api.listProjects().then((ps) => {
-      setProjects(ps);
-      if (ps.length && pid === null) setPid(ps[0].id);
-    });
+    api
+      .listProjects()
+      .then((ps) => {
+        setProjects(ps);
+        setPid((prev) => prev ?? ps[0]?.id ?? null);
+      })
+      .catch((e) => setError("Failed to reach the backend: " + e.message));
   }, []);
 
   useEffect(() => {
@@ -51,7 +60,9 @@ export default function App() {
         <div className="spacer" />
         <select
           value={pid ?? ""}
-          onChange={(e) => setPid(Number(e.target.value))}
+          onChange={(e) =>
+            setPid(e.target.value === "" ? null : Number(e.target.value))
+          }
         >
           {projects.length === 0 && <option value="">No projects</option>}
           {projects.map((p) => (
@@ -62,11 +73,12 @@ export default function App() {
         </select>
         <button onClick={createProject}>+ Project</button>
         {pid !== null && (
-          <a className="link" href={api.exportUrl(pid)}>
-            <button className="accent">⬇ Export Excel</button>
+          <a className="btnlink accent" href={api.exportUrl(pid)} download>
+            ⬇ Export Excel
           </a>
         )}
       </div>
+      {error && <div className="errbar">{error}</div>}
 
       {pid === null ? (
         <div className="empty">
@@ -248,8 +260,8 @@ function CenterPanel({ boq, onChange }: { boq: Boq | null; onChange: () => void 
             </thead>
             <tbody>
               {boq.groups.map((g) => (
-                <>
-                  <tr className="section" key={g.category}>
+                <Fragment key={g.category}>
+                  <tr className="section">
                     <td colSpan={7}>{g.label}</td>
                   </tr>
                   {g.items.map((it, i) => (
@@ -271,7 +283,7 @@ function CenterPanel({ boq, onChange }: { boq: Boq | null; onChange: () => void 
                     <td className="num">{INR(g.subtotal)}</td>
                     <td></td>
                   </tr>
-                </>
+                </Fragment>
               ))}
               <tr>
                 <td colSpan={5} className="grand">GRAND TOTAL</td>
@@ -445,6 +457,7 @@ function RightPanel({
                   <td className="muted small">{r.unit}</td>
                   <td className="num">
                     <input
+                      key={`${r.category}-${r.rate}`}
                       style={{ width: 90 }}
                       type="number"
                       defaultValue={r.rate}

@@ -105,7 +105,9 @@ def update_project(pid: int, body: ProjectIn, db: Session = Depends(get_db)):
 async def upload_drawing(pid: int, file: UploadFile, db: Session = Depends(get_db)):
     _get_project(db, pid)
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    path = os.path.join(settings.UPLOAD_DIR, f"{uuid.uuid4().hex}_{file.filename}")
+    # Never trust the client filename for a path — strip any directory parts.
+    safe_name = os.path.basename(file.filename or "upload.pdf")
+    path = os.path.join(settings.UPLOAD_DIR, f"{uuid.uuid4().hex}_{safe_name}")
     with open(path, "wb") as f:
         f.write(await file.read())
 
@@ -238,7 +240,12 @@ def update_member(mid: int, body: dict[str, Any], db: Session = Depends(get_db))
     row = db.get(Member, mid)
     if not row:
         raise HTTPException(404, "Member not found")
-    merged = {**row.params, **body}
+    # When the type changes, don't merge stale type-specific fields from the old
+    # member — validate the new body on its own.
+    if body.get("member_type") and body["member_type"] != row.member_type:
+        merged = body
+    else:
+        merged = {**row.params, **body}
     try:
         m = services.validate_member(merged)
     except Exception as exc:
@@ -317,6 +324,11 @@ def list_rates(pid: int, db: Session = Depends(get_db)):
 @router.post("/projects/{pid}/rates")
 def set_rate(pid: int, body: RateIn, db: Session = Depends(get_db)):
     _get_project(db, pid)
+    known = {c for c, _ in CATEGORY_ORDER}
+    if body.category not in known:
+        # Reject typos that would otherwise store a rate the BOQ never applies.
+        raise HTTPException(422, f"Unknown category '{body.category}'. "
+                                 f"Expected one of: {sorted(known)}")
     r = db.query(Rate).filter_by(project_id=pid, category=body.category).first()
     if r:
         r.rate = body.rate
@@ -365,6 +377,8 @@ def nl_edit_apply(pid: int, body: dict[str, Any], db: Session = Depends(get_db))
     member = body.get("member")
     if not member:
         raise HTTPException(422, "No member to apply")
+    if not isinstance(member, dict):
+        raise HTTPException(422, "member must be an object")
     member.setdefault("source", "nl")
     try:
         m = services.validate_member(member)

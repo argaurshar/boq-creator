@@ -85,9 +85,10 @@ def column(m) -> list[Quantity]:
     H = mm_to_m(m.height_mm)
     rows = []
     for i, bg in enumerate(m.main_bars):
-        # main bars run full height + development/lap
-        cut = H + mat.DEFAULT_LAP_FACTOR * mm_to_m(bg.dia_mm)
-        cut += _laps_extra(cut, bg.dia_mm)
+        # main bars run full height + one development/lap splice, plus any
+        # stock-length laps (computed from the clear height, not the spliced
+        # length, so the lift splice isn't counted twice on tall columns).
+        cut = H + mat.DEFAULT_LAP_FACTOR * mm_to_m(bg.dia_mm) + _laps_extra(H, bg.dia_mm)
         row, _ = _bbs_row(f"{m.label}-M{i+1}", bg.dia_mm, bg.count, cut)
         rows.append(row)
     if m.ties and m.ties.spacing_mm:
@@ -123,9 +124,15 @@ def beam(m) -> list[Quantity]:
 
 
 def _mesh_rows(mark, mesh, span_along_m, bar_len_m, cover_m):
-    """A mat of bars: count across `span_along_m`, each `bar_len_m` long."""
+    """A mat of bars: count across `span_along_m`, each `bar_len_m` long.
+
+    Deformed (Fe500) mesh bars are detailed straight (no 180-deg hooks); stock
+    laps are added for bars longer than the stock length. Schema guarantees
+    spacing_mm > 0, so the floor division is safe.
+    """
     n = int(max(span_along_m - 2 * cover_m, 0.0) // mm_to_m(mesh.spacing_mm)) + 1
-    cut = max(bar_len_m - 2 * cover_m, 0.0) + 2 * mat.HOOK_ALLOWANCE * mm_to_m(mesh.dia_mm)
+    cut = max(bar_len_m - 2 * cover_m, 0.0)
+    cut += _laps_extra(cut, mesh.dia_mm)
     return _bbs_row(mark, mesh.dia_mm, n, cut)[0]
 
 

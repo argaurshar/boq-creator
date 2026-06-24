@@ -62,7 +62,14 @@ class MockProvider(AIProvider):
 
     def parse_nl_edit(self, *, text, context):
         t = text.strip().lower()
-        op = "delete" if t.startswith(("delete", "remove")) else "add"
+        if t.startswith(("delete", "remove")):
+            # The apply path only adds members; don't return a delete op the
+            # backend can't honour. Point the user at the delete button instead.
+            return {
+                "op": "noop",
+                "message": "Deleting via chat isn't supported yet — use the "
+                           "delete button on the element in the left panel.",
+            }
         member = self._parse_member(text)
         if member is None:
             return {
@@ -71,7 +78,7 @@ class MockProvider(AIProvider):
                            "'add 5 columns 300x600 3m high with 8-16mm bars M25'.",
             }
         return {
-            "op": op,
+            "op": "add",
             "member": member,
             "message": f"Parsed a {member['member_type']} ({member.get('label','')}).",
         }
@@ -92,9 +99,12 @@ class MockProvider(AIProvider):
             h = HEIGHT.search(t)
             if not d:
                 return None
-            bars = BARS.search(t.split("bar")[0] if "bar" in t else t)
+            # Strip the section dims (first DIMS match, e.g. "300x600") before
+            # reading the bar spec, so "8-16mm" isn't mis-read as 300 bars of 600.
+            seg = DIMS.sub(" ", t, count=1)
+            bars = BARS.search(seg) if "bar" in t else None
             main = ([{"dia_mm": _num(bars.group(2)), "count": int(bars.group(1))}]
-                    if bars and "bar" in t else [])
+                    if bars else [])
             return {
                 "member_type": "column", "label": "C-nl",
                 "b_mm": _num(d.group(1)), "D_mm": _num(d.group(2)),

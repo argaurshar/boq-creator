@@ -20,26 +20,26 @@ from pydantic import BaseModel, Field
 # Reusable sub-structures
 # --------------------------------------------------------------------------- #
 class BarGroup(BaseModel):
-    dia_mm: float
+    dia_mm: float = Field(gt=0)
     count: int = 1
 
 
 class BarMesh(BaseModel):
     """A one-direction mat of bars described by spacing."""
 
-    dia_mm: float
-    spacing_mm: float
+    dia_mm: float = Field(gt=0)
+    spacing_mm: float = Field(gt=0)
 
 
 class StirrupZone(BaseModel):
-    spacing_mm: float
-    length_mm: float
+    spacing_mm: float = Field(gt=0)
+    length_mm: float = Field(ge=0)
 
 
 class Stirrups(BaseModel):
-    dia_mm: float
+    dia_mm: float = Field(gt=0)
     legs: int = 2
-    spacing_mm: float | None = None          # uniform spacing
+    spacing_mm: float | None = Field(default=None, gt=0)  # uniform spacing
     zones: list[StirrupZone] = Field(default_factory=list)  # variable spacing
 
 
