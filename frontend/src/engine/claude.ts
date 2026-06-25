@@ -36,7 +36,7 @@ async function jsonCall(system: string, content: Content, apiKey: string): Promi
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 8000,
+        max_tokens: 16000, // room for many extracted members on busy sheets
         system: sys,
         messages: [{ role: "user", content }],
       }),
@@ -83,7 +83,7 @@ export async function claudeExtract(args: {
     text:
       `Page number: ${args.page_no}\nScale: ${args.scale}\n` +
       `Project defaults: ${JSON.stringify(args.context)}\n\n` +
-      `Extracted page text (may include schedule tables):\n${args.page_text.slice(0, 12000)}`,
+      `Extracted page text (may include schedule tables):\n${args.page_text.slice(0, 24000)}`,
   });
   const data = await jsonCall(EXTRACT_PROMPT, content, args.apiKey);
   if (data.page_no === undefined) data.page_no = args.page_no;

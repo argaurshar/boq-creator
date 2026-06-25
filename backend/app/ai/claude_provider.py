@@ -45,7 +45,7 @@ class ClaudeProvider(AIProvider):
             "text": (
                 f"Page number: {page_no}\nScale: {scale}\n"
                 f"Project defaults: {json.dumps(context)}\n\n"
-                f"Extracted page text (may include schedule tables):\n{page_text[:12000]}"
+                f"Extracted page text (may include schedule tables):\n{page_text[:24000]}"
             ),
         })
         data = self._json_call(_load("extract_members.md"), content)
@@ -71,7 +71,7 @@ class ClaudeProvider(AIProvider):
     def _create(self, system: str, content: list[dict[str, Any]]):
         base = dict(
             model=_MODEL,
-            max_tokens=8000,
+            max_tokens=16000,
             system=system,
             messages=[{"role": "user", "content": content}],
         )
