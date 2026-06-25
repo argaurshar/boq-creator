@@ -3,7 +3,9 @@
 // Anthropic. Mirrors backend/app/ai/claude_provider.py.
 import { EXTRACT_PROMPT, NL_EDIT_PROMPT } from "./prompts";
 
-const MODEL = "claude-opus-4-8";
+// Use Claude Sonnet (current: Sonnet 4.6) for user-supplied-key calls — faster
+// and cheaper than Opus, well-suited to the extraction/NL-parsing tasks here.
+const MODEL = "claude-sonnet-4-6";
 const API_URL = "https://api.anthropic.com/v1/messages";
 
 type Content = Array<Record<string, any>>;
