@@ -10,7 +10,7 @@ import { roundQty } from "./engine/units";
 import { CATEGORY_ORDER } from "./engine/compute";
 import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
-import { claudeParseNl, claudeExtract } from "./engine/claude";
+import { claudeParseNl, claudeExtract, DEFAULT_MODEL } from "./engine/claude";
 import { downloadBoqXlsx } from "./engine/export";
 
 export type { Boq, BoqItem, BoqGroup };
@@ -53,6 +53,16 @@ export function setApiKey(key: string): void {
     if (key) localStorage.setItem(KEY_STORAGE, key);
     else localStorage.removeItem(KEY_STORAGE);
   } catch { /* ignore */ }
+}
+
+// Which Claude model to use for AI calls (extraction + chat). Default Sonnet;
+// users can switch to Opus for maximum extraction completeness on hard drawings.
+const MODEL_STORAGE = "boq.claudeModel";
+export function getModel(): string {
+  try { return localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; }
+}
+export function setModel(model: string): void {
+  try { localStorage.setItem(MODEL_STORAGE, model); } catch { /* ignore */ }
 }
 
 // --------------------------------------------------------------------------- //
@@ -192,7 +202,7 @@ export const api = {
     let provider: string;
     if (key) {
       provider = "claude";
-      result = await claudeParseNl(text, context, key);
+      result = await claudeParseNl(text, context, key, getModel());
     } else {
       provider = "mock";
       result = mockParseNl(text);
@@ -244,6 +254,8 @@ export const api = {
         scale: "unknown",
         context: { concrete_grade: "M25", cover_mm: 40, currency: p.currency },
         apiKey: key,
+        model: getModel(),
+        onProgress,
       });
       for (const raw of result.members || []) {
         try {

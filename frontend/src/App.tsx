@@ -3,6 +3,8 @@ import {
   api,
   getApiKey,
   setApiKey,
+  getModel,
+  setModel,
   Boq,
   BoqItem,
   Project,
@@ -22,6 +24,7 @@ export default function App() {
   const [rates, setRates] = useState<RateRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState<boolean>(() => !!getApiKey());
+  const [model, setModelState] = useState<string>(() => getModel());
   // In-app dialogs instead of window.prompt(): the latter is blocked in
   // sandboxed/embedded browsers (e.g. VS Code's Simple Browser).
   const [showNewProject, setShowNewProject] = useState(false);
@@ -96,6 +99,14 @@ export default function App() {
         >
           {hasKey ? "🔑 AI key: on" : "🔑 Set AI key"}
         </button>
+        <select
+          value={model}
+          title="AI model used to read drawings and chat. Opus reads the most thoroughly; Sonnet is faster/cheaper."
+          onChange={(e) => { setModel(e.target.value); setModelState(e.target.value); }}
+        >
+          <option value="claude-sonnet-4-6">Sonnet (fast)</option>
+          <option value="claude-opus-4-8">Opus (most thorough)</option>
+        </select>
         <select
           value={pid ?? ""}
           onChange={(e) =>

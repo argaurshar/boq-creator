@@ -3,9 +3,7 @@
 // Anthropic. Mirrors backend/app/ai/claude_provider.py.
 import { EXTRACT_PROMPT, NL_EDIT_PROMPT } from "./prompts";
 
-// Use Claude Sonnet (current: Sonnet 4.6) for user-supplied-key calls — faster
-// and cheaper than Opus, well-suited to the extraction/NL-parsing tasks here.
-const MODEL = "claude-sonnet-4-6";
+export const DEFAULT_MODEL = "claude-sonnet-4-6";
 const API_URL = "https://api.anthropic.com/v1/messages";
 
 type Content = Array<Record<string, any>>;
@@ -20,7 +18,13 @@ function stripFences(text: string): string {
   return t.trim();
 }
 
-async function jsonCall(system: string, content: Content, apiKey: string): Promise<any> {
+async function jsonCall(
+  system: string,
+  content: Content,
+  apiKey: string,
+  model: string,
+  maxTokens = 16000
+): Promise<any> {
   let lastErr: any = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const sys = attempt === 0
@@ -35,8 +39,8 @@ async function jsonCall(system: string, content: Content, apiKey: string): Promi
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 16000, // room for many extracted members on busy sheets
+        model,
+        max_tokens: maxTokens,
         system: sys,
         messages: [{ role: "user", content }],
       }),
@@ -59,35 +63,88 @@ async function jsonCall(system: string, content: Content, apiKey: string): Promi
   throw new Error(`Claude did not return valid JSON: ${lastErr}`);
 }
 
-export async function claudeParseNl(text: string, context: Record<string, any>, apiKey: string): Promise<any> {
+export async function claudeParseNl(
+  text: string,
+  context: Record<string, any>,
+  apiKey: string,
+  model: string = DEFAULT_MODEL
+): Promise<any> {
   const content: Content = [{
     type: "text",
     text: `Project defaults: ${JSON.stringify(context)}\n\nInstruction:\n${text}`,
   }];
-  return jsonCall(NL_EDIT_PROMPT, content, apiKey);
+  return jsonCall(NL_EDIT_PROMPT, content, apiKey, model, 8000);
+}
+
+function dedupeMembers(lists: any[][]): any[] {
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const list of lists) {
+    for (const m of list || []) {
+      if (!m || typeof m !== "object" || !m.member_type) continue;
+      const lbl = String(m.label || "").trim().toLowerCase();
+      const k = lbl ? `${m.member_type}|${lbl}` : "";
+      if (k && seen.has(k)) continue;
+      if (k) seen.add(k);
+      out.push(m);
+    }
+  }
+  return out;
 }
 
 export async function claudeExtract(args: {
   page_no: number; page_text: string; page_image_b64: string | null;
   scale: string; context: Record<string, any>; apiKey: string;
+  model?: string; onProgress?: (msg: string) => void;
 }): Promise<any> {
-  const content: Content = [];
+  const model = args.model || DEFAULT_MODEL;
+  const base: Content = [];
   if (args.page_image_b64) {
-    content.push({
+    base.push({
       type: "image",
       source: { type: "base64", media_type: "image/png", data: args.page_image_b64 },
     });
   }
-  content.push({
+  base.push({
     type: "text",
     text:
       `Page number: ${args.page_no}\nScale: ${args.scale}\n` +
       `Project defaults: ${JSON.stringify(args.context)}\n\n` +
       `Extracted page text (may include schedule tables):\n${args.page_text.slice(0, 24000)}`,
   });
-  const data = await jsonCall(EXTRACT_PROMPT, content, args.apiKey);
-  if (data.page_no === undefined) data.page_no = args.page_no;
-  if (!data.members) data.members = [];
-  if (!data.unresolved) data.unresolved = [];
-  return data;
+
+  // Pass 1 — extract everything.
+  const first = await jsonCall(EXTRACT_PROMPT, base, args.apiKey, model);
+
+  // Pass 2 — completeness sweep: find anything missed. Re-checking each schedule
+  // row and grid line against what's already captured catches under-extraction.
+  const already = (first.members || [])
+    .map((m: any) => `${m.member_type} ${m.label || ""}`.trim())
+    .join("; ");
+  args.onProgress?.(`Double-checking page ${args.page_no} for missed elements…`);
+  const sweep: Content = [
+    ...base,
+    {
+      type: "text",
+      text:
+        "ALREADY EXTRACTED on this page (do NOT repeat these):\n" +
+        (already || "(nothing yet)") +
+        "\n\nNow return ONLY the ADDITIONAL elements on this page that are NOT in " +
+        "that list — re-check every schedule row, every grid line, and every " +
+        "section/detail. Same JSON shape. If there are genuinely none, return " +
+        '{"page_no": ' + args.page_no + ', "members": [], "unresolved": []}.',
+    },
+  ];
+  let second: any = { members: [], unresolved: [] };
+  try {
+    second = await jsonCall(EXTRACT_PROMPT, sweep, args.apiKey, model);
+  } catch {
+    /* sweep is best-effort; keep pass-1 results if it fails */
+  }
+
+  return {
+    page_no: args.page_no,
+    members: dedupeMembers([first.members || [], second.members || []]),
+    unresolved: [...(first.unresolved || []), ...(second.unresolved || [])],
+  };
 }
