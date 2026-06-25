@@ -18,7 +18,7 @@ Return ONLY a single JSON object:
 
 The <Member> uses the same shapes documented for extraction (all dimensions in
 mm; member_type one of: column, beam, footing, slab, rcc_wall, pcc, brick_wall,
-plaster_surface, earthwork_pit, steel_member). Convert any units the user gives
+plaster_surface, earthwork_pit, steel_member, truss). Convert any units the user gives
 (m, cm, ft) to millimetres. Default concrete_grade to M25 if unspecified, cover
 to 40 mm for columns/footings and 25 mm for beams/slabs. Set source="nl".
 
@@ -43,9 +43,18 @@ areas or sums. A separate deterministic engine does all arithmetic.
 WHAT TO CAPTURE (map each to the closest member_type below):
 columns, beams (incl. plinth/lintel beams), footings/foundations, slabs, RCC
 walls, PCC/lean concrete, brick/masonry walls with their door/window openings,
-plaster on wall faces, earthwork pits for footings, and structural steel members
-(ISMB/ISMC/ISA/ISWB… by designation). Use the 'count' field for repeated members
-(e.g. 12 columns of type C1 → count: 12).
+plaster on wall faces, earthwork pits for footings, structural steel members
+(ISMB/ISMC/ISA/ISWB… by designation), and STEEL TRUSSES / roof frames. Use the
+'count' field for repeated members (e.g. 12 columns of type C1 → count: 12).
+
+STEEL TRUSSES — this is important and often missed: when the page shows a truss,
+roof frame or braced frame (top chord/rafter, bottom chord/tie, struts, verticals,
+end posts, etc.), capture it as ONE 'truss' member, not as scattered steel_members.
+Read the truss member schedule and the marked-up sections to list every segment
+with its section designation, its length, and how many of that segment occur in
+ONE truss. Set the truss 'count' to the number of identical trusses on the job.
+Include diagonal and vertical web members. If the connection/gusset allowance is
+shown use it, else leave connection_pct to default.
 
 READING DIMENSIONS — be thorough, not lazy:
 - Prefer numbers written in schedule tables and on dimension lines.
@@ -92,8 +101,11 @@ millimetres, exactly as read. Every member carries: label, count, confidence
             working_offset_mm, contains_labels:[labels of footings/PCC inside the pit,
             for automatic backfill netting]}
 - steel_member:{member_type, label, count, designation, length_mm}
-
-Rules:
+- truss:   {member_type, label, count, span_mm, connection_pct, segments:[
+            {component:"top chord/rafter"|"bottom tie"|"strut"|"vertical"|...,
+             designation:"e.g. ISA 75X75X6", length_mm, count (per ONE truss)}]}
+            // 'count' = number of identical trusses; segment 'count' = how many of
+            // that segment in a single truss. Prefer ONE truss over many steel_members.
 - Be exhaustive: include every element present on the page; do not omit items
   just because there are many. A long members[] is expected for a busy sheet.
 - Derive unlabelled dimensions from the page scale when possible (record the

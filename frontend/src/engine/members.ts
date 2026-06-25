@@ -9,6 +9,7 @@ export interface Stirrups {
   dia_mm: number; legs: number; spacing_mm: number | null; zones: StirrupZone[];
 }
 export interface Opening { width_mm: number; height_mm: number; count: number; }
+export interface TrussSegment { component: string; designation: string; length_mm: number; count: number; }
 
 export interface Member {
   member_type: string;
@@ -26,7 +27,7 @@ export interface Member {
 
 const KNOWN_TYPES = [
   "column", "beam", "footing", "slab", "rcc_wall", "pcc",
-  "brick_wall", "plaster_surface", "earthwork_pit", "steel_member",
+  "brick_wall", "plaster_surface", "earthwork_pit", "steel_member", "truss",
 ];
 
 function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number } = {}): number | null {
@@ -83,6 +84,20 @@ function openings(raw: any): Opening[] {
     height_mm: num(o, "height_mm", { required: true })!,
     count: Math.trunc(num(o, "count", { def: 1 })!),
   }));
+}
+
+function trussSegments(raw: any): TrussSegment[] {
+  if (!Array.isArray(raw)) throw new Error("truss 'segments' must be a list");
+  const segs = raw
+    .filter((s) => s && (s.designation ?? "") !== "")
+    .map((s) => ({
+      component: s.component != null ? String(s.component) : "",
+      designation: String(s.designation),
+      length_mm: num(s, "length_mm", { required: true, gt0: true })!,
+      count: Math.trunc(num(s, "count", { def: 1, gt0: true })!),
+    }));
+  if (!segs.length) throw new Error("a truss needs at least one segment with a section designation");
+  return segs;
 }
 
 function strList(raw: any): string[] {
@@ -201,6 +216,13 @@ export function validateMember(raw: any): Member {
         designation: raw.designation != null ? String(raw.designation) : "",
         length_mm: num(raw, "length_mm", { required: true })!,
         connection_pct: num(raw, "connection_pct", { def: 3.0 })!,
+      };
+    case "truss":
+      return {
+        ...base,
+        span_mm: num(raw, "span_mm", { def: 0 })!,
+        connection_pct: num(raw, "connection_pct", { def: 5.0 })!,
+        segments: trussSegments(raw.segments),
       };
     default:
       throw new Error(`Unhandled member_type '${t}'`);

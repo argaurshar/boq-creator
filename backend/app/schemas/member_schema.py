@@ -170,10 +170,26 @@ class SteelMember(_MemberBase):
     connection_pct: float = 3.0               # connections/gusset lump %
 
 
+class TrussSegment(BaseModel):
+    """One member of a truss (rafter, tie, strut, vertical…)."""
+
+    component: str = ""                        # role, e.g. "top chord/rafter"
+    designation: str                          # section, e.g. "ISA 75X75X6"
+    length_mm: float = Field(gt=0)
+    count: int = 1                            # how many of this segment per ONE truss
+
+
+class Truss(_MemberBase):
+    member_type: Literal["truss"] = "truss"
+    span_mm: float = 0.0                       # informational only
+    connection_pct: float = 5.0               # gusset/bolt/weld lump %
+    segments: list[TrussSegment] = Field(min_length=1)
+
+
 Member = Annotated[
     Union[
         Column, Beam, Footing, Slab, RccWall, Pcc,
-        BrickWall, PlasterSurface, EarthworkPit, SteelMember,
+        BrickWall, PlasterSurface, EarthworkPit, SteelMember, Truss,
     ],
     Field(discriminator="member_type"),
 ]

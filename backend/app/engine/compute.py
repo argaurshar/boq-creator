@@ -21,6 +21,7 @@ REGISTRY = {
     "plaster_surface": [plaster.plaster_surface],
     "earthwork_pit":   [earthwork.earthwork_pit],
     "steel_member":    [steel.steel_member],
+    "truss":           [steel.truss],
 }
 
 

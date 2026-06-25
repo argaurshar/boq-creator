@@ -8,7 +8,7 @@ import math
 from app.engine.compute import compute_member
 from app.schemas.member_schema import (
     BarGroup, BarMesh, BrickWall, Beam, Column, EarthworkPit, Footing,
-    Opening, PlasterSurface, Slab, SteelMember, Stirrups,
+    Opening, PlasterSurface, Slab, SteelMember, Stirrups, Truss, TrussSegment,
 )
 
 
@@ -129,6 +129,37 @@ def test_steel_expanded_section_table():
                     connection_pct=3.0)
     q = compute_member(m)[0]
     assert approx(q.value, 232.986)
+
+
+def test_truss_sums_segments_with_connection_and_count():
+    # ISA75X75X6 = 6.8 kg/m, ISA50X50X6 = 4.5 kg/m (IS 808 table).
+    #   rafter : 6.8 * 6  * 2 = 81.6
+    #   tie    : 6.8 * 12 * 1 = 81.6
+    #   strut  : 4.5 * 1  * 4 = 18.0
+    #   per_truss = 181.2 ; *1.05 connections = 190.26 ; *3 trusses = 570.78
+    m = Truss(label="T1", count=3, connection_pct=5.0, segments=[
+        TrussSegment(component="rafter", designation="ISA75X75X6", length_mm=6000, count=2),
+        TrussSegment(component="bottom tie", designation="ISA75X75X6", length_mm=12000, count=1),
+        TrussSegment(component="strut", designation="ISA50X50X6", length_mm=1000, count=4),
+    ])
+    qs = compute_member(m)
+    assert len(qs) == 1
+    q = qs[0]
+    assert q.category == "steel" and q.unit == "kg"
+    assert approx(q.value, 570.78)
+    assert approx(q.extra["per_truss_kg"], 181.2)
+    assert len(q.extra["truss_segments"]) == 3
+
+
+def test_truss_flags_unknown_segment_section():
+    m = Truss(label="T2", count=1, connection_pct=0.0, segments=[
+        TrussSegment(component="rafter", designation="ISA75X75X6", length_mm=1000, count=1),
+        TrussSegment(component="mystery", designation="NOPE999", length_mm=1000, count=1),
+    ])
+    q = compute_member(m)[0]
+    # only the known segment contributes: 6.8 * 1 * 1 = 6.8
+    assert approx(q.value, 6.8)
+    assert "unknown" in q.description.lower()
 
 
 def test_half_brick_wall_measured_in_m2():
