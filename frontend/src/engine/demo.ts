@@ -2,7 +2,7 @@
 
 export const DEFAULT_UNITS: Record<string, string> = {
   earthwork: "m3", concrete: "m3", formwork: "m2", rebar: "kg",
-  steel: "kg", masonry: "m3", plaster: "m2",
+  steel: "kg", masonry: "m3", plaster: "m2", roofing: "m2",
 };
 
 export const DEMO_MEMBERS: Record<string, any>[] = [
@@ -36,5 +36,5 @@ export const DEMO_MEMBERS: Record<string, any>[] = [
 
 export const DEMO_RATES: Record<string, number> = {
   earthwork: 350, concrete: 6500, formwork: 450, rebar: 75,
-  steel: 90, masonry: 6000, plaster: 280,
+  steel: 90, masonry: 6000, plaster: 280, roofing: 650,
 };

@@ -28,6 +28,7 @@ export interface Member {
 const KNOWN_TYPES = [
   "column", "beam", "footing", "slab", "rcc_wall", "pcc",
   "brick_wall", "plaster_surface", "earthwork_pit", "steel_member", "truss",
+  "anchor_bolt", "roof_sheeting",
 ];
 
 function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number } = {}): number | null {
@@ -223,6 +224,20 @@ export function validateMember(raw: any): Member {
         span_mm: num(raw, "span_mm", { def: 0 })!,
         connection_pct: num(raw, "connection_pct", { def: 5.0 })!,
         segments: trussSegments(raw.segments),
+      };
+    case "anchor_bolt":
+      return {
+        ...base,
+        dia_mm: num(raw, "dia_mm", { required: true, gt0: true })!,
+        length_mm: num(raw, "length_mm", { required: true, gt0: true })!,
+      };
+    case "roof_sheeting":
+      return {
+        ...base,
+        length_mm: num(raw, "length_mm", { required: true })!,
+        breadth_mm: num(raw, "breadth_mm", { required: true })!,
+        lap_pct: num(raw, "lap_pct", { def: 0 })!,
+        opening_area_m2: num(raw, "opening_area_m2", { def: 0 })!,
       };
     default:
       throw new Error(`Unhandled member_type '${t}'`);

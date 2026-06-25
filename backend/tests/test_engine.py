@@ -6,9 +6,11 @@ a test must change with it — that is the audit gate. See project.md section 12
 import math
 
 from app.engine.compute import compute_member
+from app.engine.materials import resolve_steel
 from app.schemas.member_schema import (
-    BarGroup, BarMesh, BrickWall, Beam, Column, EarthworkPit, Footing,
-    Opening, PlasterSurface, Slab, SteelMember, Stirrups, Truss, TrussSegment,
+    AnchorBolt, BarGroup, BarMesh, BrickWall, Beam, Column, EarthworkPit, Footing,
+    Opening, PlasterSurface, RoofSheeting, Slab, SteelMember, Stirrups, Truss,
+    TrussSegment,
 )
 
 
@@ -178,3 +180,43 @@ def test_earthwork_working_offset_widens_dig():
     exc = [q for q in compute_member(m) if "excavation" in q.description.lower()][0]
     # (2.0 + 0.3) x (2.0 + 0.3) x 1.5 = 7.935 m3
     assert approx(exc.value, 7.935)
+
+
+def test_masonry_clamp_to_zero_is_flagged_not_silent():
+    # A 1.0 x 2.4 x 0.229 wall = 0.55 m3 gross; embedded RCC of 1.0 m3 > gross,
+    # so the net clamps to 0 — but the line must carry a warning, not vanish.
+    m = BrickWall(label="PIER", length_mm=1000, height_mm=2400, thickness_mm=229,
+                  embedded_rcc_m3=1.0)
+    q = compute_member(m)[0]
+    assert q.value == 0.0
+    assert "review" in q.description.lower()
+    assert "warning" in q.extra
+
+
+def test_plate_inch_plan_dims_converted():
+    # A 12"x12"x20mm base plate: plan size given in inches, thickness in mm.
+    #   305 x 305 x 20 mm -> 305*305*20 /1e9 * 7850 ~= 14.6 kg
+    r = resolve_steel("MS PLATE 12X12X20MM")
+    assert r["piece_wt_kg"] is not None and approx(r["piece_wt_kg"], 14.6, tol=0.05)
+    # explicit inch marks give the same answer
+    r2 = resolve_steel('PLATE 12"x12"x20mm')
+    assert approx(r2["piece_wt_kg"], 14.6, tol=0.05)
+    # a normal all-mm plate is untouched: 200*200*10 /1e9 *7850 = 3.14 kg
+    r3 = resolve_steel("PLATE 200X200X10")
+    assert approx(r3["piece_wt_kg"], 3.14, tol=0.02)
+
+
+def test_anchor_bolt_weight():
+    # 25 mm dia, 0.6 m long, 24 nos: (25^2/162) * 0.6 * 1.10 * 24 ~= 61.11 kg
+    m = AnchorBolt(label="AB1", count=24, dia_mm=25, length_mm=600)
+    q = compute_member(m)[0]
+    assert q.category == "steel" and q.unit == "kg" and q.nos == 24
+    assert approx(q.value, 61.11, tol=0.05)
+
+
+def test_roof_sheeting_area_with_lap():
+    # 6.0 x 3.0 = 18 m2 per sheet x 2 x 1.10 lap = 39.6 m2
+    m = RoofSheeting(label="RS1", count=2, length_mm=6000, breadth_mm=3000, lap_pct=10)
+    q = compute_member(m)[0]
+    assert q.category == "roofing" and q.unit == "m2"
+    assert approx(q.value, 39.6)

@@ -27,16 +27,26 @@ export function brick_wall(m: Member): Quantity[] {
   }
 
   const gross = L * H * t;
-  const net = Math.max(gross - deduct_area * t - (m.embedded_rcc_m3 ?? 0), 0.0) * n;
+  const deductions = deduct_area * t + (m.embedded_rcc_m3 ?? 0);
+  const clamped = deductions >= gross && gross > 0;
+  const net = Math.max(gross - deductions, 0.0) * n;
   const bricks = net * mat.BRICKS_PER_M3;
+  const extra: Record<string, any> = { bricks_est: pyRound(bricks, 0) };
+  let desc = `Brickwork ${m.label} (${fmt0(m.thickness_mm)} mm thick)`.trim();
+  if (clamped) {
+    desc += " — review: openings/embedded RCC ≥ wall volume";
+    extra.warning =
+      `Net masonry clamped to 0: deductions ${pyRound(deductions, 3)} m³ ` +
+      `≥ gross wall ${pyRound(gross, 3)} m³ (per unit). Check openings / embedded_labels.`;
+  }
   return [qty({
     category: "masonry",
-    description: `Brickwork ${m.label} (${fmt0(m.thickness_mm)} mm thick)`.trim(),
+    description: desc,
     unit: "m3", value: net, nos: n, length_m: L, breadth_m: t, depth_m: H,
     audit: [step("masonry.brickwork.volume",
       "(L*H*t - openings(>0.1m2)*t - embedded_rcc)*count",
       { L_m: L, H_m: H, t_m: t, deduct_openings_m3: deduct_area * t,
         embedded_rcc_m3: m.embedded_rcc_m3 ?? 0, count: n }, net, CLAUSE)],
-    extra: { bricks_est: pyRound(bricks, 0) },
+    extra,
   })];
 }

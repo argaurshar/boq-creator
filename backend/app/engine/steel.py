@@ -102,3 +102,28 @@ def truss(m) -> list[Quantity]:
              "count": n, "segments": breakdown}, total, "IS 808 / SP 6(1)")],
         extra={"truss_segments": breakdown, "per_truss_kg": per_truss},
     )]
+
+
+# Anchor / holding-down bolts. Weight as a round bar (d^2/162 kg/m) over the full
+# bolt length, +10% for the nut, washer and threaded portion. Mirrors the TS
+# engine's steel.anchor_bolt.
+BOLT_NUT_WASHER_FACTOR = 1.10
+
+
+def anchor_bolt(m) -> list[Quantity]:
+    L = mm_to_m(m.length_mm)
+    n = m.count
+    w_per_m = (m.dia_mm * m.dia_mm) / mat.REBAR_WEIGHT_DIVISOR
+    each = w_per_m * L * BOLT_NUT_WASHER_FACTOR
+    total = each * n
+    return [Quantity(
+        category="steel",
+        description=f"Anchor bolt {m.label} ({m.dia_mm:.0f}mm dia x {m.length_mm:.0f}mm)".strip(),
+        unit="kg", value=total, nos=n, length_m=L,
+        audit=[FormulaStep(
+            "steel.anchor_bolt.weight",
+            "(dia^2/162) * L * 1.10(nut+washer+thread) * count",
+            {"dia_mm": m.dia_mm, "L_m": L, "factor": BOLT_NUT_WASHER_FACTOR,
+             "count": n}, total, "IS 800")],
+        extra={"each_kg": each},
+    )]

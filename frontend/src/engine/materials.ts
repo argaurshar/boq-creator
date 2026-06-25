@@ -84,9 +84,17 @@ export function resolveSteel(designation: string): SteelResolve {
 
   // 2. Plate / gusset / base plate: finite piece L x W x t (mm).
   if (has(/PLATE|PLT|GUSSET/) && n.length >= 3) {
-    const [L, W, t] = n;
+    let [L, W, t] = n;
+    // Plan size sometimes given in inches/feet (e.g. a 12"x12" base plate) while
+    // the thickness is in mm. A plate whose plan size is smaller than its own
+    // thickness is physically impossible, so treat the plan dims as inches; an
+    // explicit inch/foot mark forces the same conversion.
+    const inchMark = /\d\s*(?:"|\bIN\b|INCH)/.test(D);
+    const footMark = /\d\s*(?:'|\bFT\b|FEET|FOOT)/.test(D);
+    if (footMark && Math.max(L, W) < 50) { L *= 304.8; W *= 304.8; }
+    else if (Math.max(L, W) < t || (inchMark && Math.max(L, W) < 50)) { L *= 25.4; W *= 25.4; }
     return { unit_wt_kg_m: null, piece_wt_kg: (L * W * t / 1e9) * STEEL_DENSITY,
-             basis: `plate ${L}x${W}x${t} mm` };
+             basis: `plate ${Math.round(L)}x${Math.round(W)}x${t} mm` };
   }
   // 3. Square / rectangular hollow section.
   if (has(/\bSHS\b|\bRHS\b|\bHSS\b|TUBE|HOLLOW/)) {

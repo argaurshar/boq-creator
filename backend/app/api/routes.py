@@ -314,7 +314,8 @@ def export_xlsx(pid: int, db: Session = Depends(get_db)):
 # Rates
 # --------------------------------------------------------------------------- #
 DEFAULT_UNITS = {"earthwork": "m3", "concrete": "m3", "formwork": "m2",
-                 "rebar": "kg", "steel": "kg", "masonry": "m3", "plaster": "m2"}
+                 "rebar": "kg", "steel": "kg", "masonry": "m3", "plaster": "m2",
+                 "roofing": "m2"}
 
 
 @router.get("/projects/{pid}/rates")
@@ -447,7 +448,7 @@ _DEMO_MEMBERS: list[dict[str, Any]] = [
 ]
 
 _DEMO_RATES = {"earthwork": 350, "concrete": 6500, "formwork": 450, "rebar": 75,
-               "steel": 90, "masonry": 6000, "plaster": 280}
+               "steel": 90, "masonry": 6000, "plaster": 280, "roofing": 650}
 
 
 @router.post("/projects/{pid}/seed")
