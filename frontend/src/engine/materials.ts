@@ -53,3 +53,78 @@ export function sectionUnitWeight(designation: string): number | null {
   const key = designation.toUpperCase().replace(/ /g, "").replace(/-/g, "");
   return key in STEEL_SECTIONS ? STEEL_SECTIONS[key] : null;
 }
+
+export interface SteelResolve {
+  unit_wt_kg_m: number | null; // weight per metre (linear members)
+  piece_wt_kg: number | null; // weight per piece (plates)
+  basis: string; // human-readable derivation, for the audit trail
+}
+
+// kg/m for a section of cross-sectional area in mm^2.
+const wPerM = (area_mm2: number) => (area_mm2 / 1e6) * STEEL_DENSITY;
+
+// Resolve a steel weight from a free-text designation. Falls back from the
+// rolled-section table to geometry-derived weights for parametric sections
+// (SHS/RHS, angles, pipes, flats, rounds) and plates — so a section that isn't
+// in the table still gets a real weight instead of zero. All deterministic
+// (density x geometry, IS 808 / SP 6 conventions); no AI.
+export function resolveSteel(designation: string): SteelResolve {
+  const none: SteelResolve = { unit_wt_kg_m: null, piece_wt_kg: null, basis: "" };
+  if (!designation) return none;
+  const D = designation.toUpperCase();
+  const key = D.replace(/ /g, "").replace(/-/g, "");
+
+  // 1. Rolled section in the IS 808 / SP 6 table.
+  if (key in STEEL_SECTIONS) {
+    return { unit_wt_kg_m: STEEL_SECTIONS[key], piece_wt_kg: null, basis: "IS 808 / SP 6 table" };
+  }
+
+  const n = (D.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+  const has = (re: RegExp) => re.test(D);
+
+  // 2. Plate / gusset / base plate: finite piece L x W x t (mm).
+  if (has(/PLATE|PLT|GUSSET/) && n.length >= 3) {
+    const [L, W, t] = n;
+    return { unit_wt_kg_m: null, piece_wt_kg: (L * W * t / 1e9) * STEEL_DENSITY,
+             basis: `plate ${L}x${W}x${t} mm` };
+  }
+  // 3. Square / rectangular hollow section.
+  if (has(/\bSHS\b|\bRHS\b|\bHSS\b|TUBE|HOLLOW/)) {
+    let h, b, t;
+    if (n.length >= 3) [h, b, t] = n;
+    else if (n.length === 2) { [h, t] = n; b = h; } // e.g. SHS 100x4 (square)
+    if (h && b && t && h > 2 * t && b > 2 * t) {
+      return { unit_wt_kg_m: wPerM(h * b - (h - 2 * t) * (b - 2 * t)), piece_wt_kg: null,
+               basis: `hollow section ${h}x${b}x${t} mm` };
+    }
+  }
+  // 4. Angle (equal or unequal): legs + thickness.
+  if (has(/\bISA\b|ANGLE/) && n.length >= 2) {
+    let a, b, t;
+    if (n.length >= 3) [a, b, t] = n;
+    else { [a, t] = n; b = a; } // equal angle leg x thk
+    if (a && b && t) {
+      return { unit_wt_kg_m: wPerM((a + b - t) * t), piece_wt_kg: null,
+               basis: `angle ${a}x${b}x${t} mm` };
+    }
+  }
+  // 5. Pipe / circular hollow section: outer dia x thickness.
+  if (has(/PIPE|\bCHS\b|CIRCULAR/) && n.length >= 2) {
+    const [od, t] = n;
+    if (od && t && od > 2 * t) {
+      return { unit_wt_kg_m: wPerM(Math.PI * (od - t) * t), piece_wt_kg: null,
+               basis: `pipe ${od}x${t} mm` };
+    }
+  }
+  // 6. Flat bar: width x thickness.
+  if (has(/FLAT|\bFLT\b|\bISF\b/) && n.length >= 2) {
+    const [w, t] = n;
+    if (w && t) return { unit_wt_kg_m: wPerM(w * t), piece_wt_kg: null, basis: `flat ${w}x${t} mm` };
+  }
+  // 7. Round bar: diameter.
+  if (has(/ROUND|\bRND\b|Ø/) && n.length >= 1) {
+    const d = n[0];
+    if (d) return { unit_wt_kg_m: wPerM((Math.PI / 4) * d * d), piece_wt_kg: null, basis: `round ${d} mm dia` };
+  }
+  return none;
+}

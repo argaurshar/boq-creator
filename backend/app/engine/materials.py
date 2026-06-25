@@ -76,3 +76,72 @@ def section_unit_weight(designation: str) -> float | None:
         return None
     key = designation.upper().replace(" ", "").replace("-", "")
     return STEEL_SECTIONS.get(key)
+
+
+import math as _math
+import re as _re
+
+
+def _w_per_m(area_mm2: float) -> float:
+    return (area_mm2 / 1e6) * STEEL_DENSITY
+
+
+def resolve_steel(designation: str) -> dict:
+    """Resolve a steel weight from a free-text designation.
+
+    Falls back from the rolled-section table to geometry-derived weights for
+    parametric sections (SHS/RHS, angles, pipes, flats, rounds) and plates, so a
+    section not in the table still gets a real weight instead of zero. Pure
+    deterministic geometry (density x area, IS 808 / SP 6 conventions); no AI.
+
+    Returns {"unit_wt_kg_m": float|None, "piece_wt_kg": float|None, "basis": str}.
+    """
+    none = {"unit_wt_kg_m": None, "piece_wt_kg": None, "basis": ""}
+    if not designation:
+        return none
+    D = designation.upper()
+    key = D.replace(" ", "").replace("-", "")
+    if key in STEEL_SECTIONS:
+        return {"unit_wt_kg_m": STEEL_SECTIONS[key], "piece_wt_kg": None,
+                "basis": "IS 808 / SP 6 table"}
+
+    n = [float(x) for x in _re.findall(r"\d+(?:\.\d+)?", D)]
+    has = lambda pat: bool(_re.search(pat, D))
+
+    if has(r"PLATE|PLT|GUSSET") and len(n) >= 3:
+        L, W, t = n[0], n[1], n[2]
+        return {"unit_wt_kg_m": None, "piece_wt_kg": (L * W * t / 1e9) * STEEL_DENSITY,
+                "basis": f"plate {L:g}x{W:g}x{t:g} mm"}
+    if has(r"\bSHS\b|\bRHS\b|\bHSS\b|TUBE|HOLLOW"):
+        h = b = t = 0.0
+        if len(n) >= 3:
+            h, b, t = n[0], n[1], n[2]
+        elif len(n) == 2:
+            h, t = n[0], n[1]; b = h
+        if h and b and t and h > 2 * t and b > 2 * t:
+            return {"unit_wt_kg_m": _w_per_m(h * b - (h - 2 * t) * (b - 2 * t)),
+                    "piece_wt_kg": None, "basis": f"hollow section {h:g}x{b:g}x{t:g} mm"}
+    if has(r"\bISA\b|ANGLE") and len(n) >= 2:
+        if len(n) >= 3:
+            a, b, t = n[0], n[1], n[2]
+        else:
+            a, t = n[0], n[1]; b = a
+        if a and b and t:
+            return {"unit_wt_kg_m": _w_per_m((a + b - t) * t), "piece_wt_kg": None,
+                    "basis": f"angle {a:g}x{b:g}x{t:g} mm"}
+    if has(r"PIPE|\bCHS\b|CIRCULAR") and len(n) >= 2:
+        od, t = n[0], n[1]
+        if od and t and od > 2 * t:
+            return {"unit_wt_kg_m": _w_per_m(_math.pi * (od - t) * t), "piece_wt_kg": None,
+                    "basis": f"pipe {od:g}x{t:g} mm"}
+    if has(r"FLAT|\bFLT\b|\bISF\b") and len(n) >= 2:
+        w, t = n[0], n[1]
+        if w and t:
+            return {"unit_wt_kg_m": _w_per_m(w * t), "piece_wt_kg": None,
+                    "basis": f"flat {w:g}x{t:g} mm"}
+    if has(r"ROUND|\bRND\b|Ø") and len(n) >= 1:
+        d = n[0]
+        if d:
+            return {"unit_wt_kg_m": _w_per_m((_math.pi / 4) * d * d), "piece_wt_kg": None,
+                    "basis": f"round {d:g} mm dia"}
+    return none
