@@ -10,7 +10,7 @@ import { roundQty } from "./engine/units";
 import { CATEGORY_ORDER } from "./engine/compute";
 import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
-import { claudeParseNl } from "./engine/claude";
+import { claudeParseNl, claudeExtract } from "./engine/claude";
 import { downloadBoqXlsx } from "./engine/export";
 
 export type { Boq, BoqItem, BoqGroup };
@@ -217,14 +217,46 @@ export const api = {
 
   nlApply: (pid: number, member: any) => ok(addMemberInternal(pid, member, "nl")),
 
-  uploadDrawing: (_pid: number, _file: File): Promise<any> => {
-    return Promise.reject(new Error(
-      "PDF drawing extraction isn't available in this static build yet. " +
-      "Add elements with the chat (right) or the manual form, or set your AI key."
-    ));
+  // Render a PDF in the browser and extract members from each page via Claude
+  // (using the user's own key). Returns a per-file summary.
+  extractDrawing: async (
+    pid: number,
+    file: File,
+    onProgress?: (msg: string) => void
+  ): Promise<{ saved: number; rejected: any[]; unresolved: any[]; pages: number }> => {
+    const p = getProject(pid);
+    const key = getApiKey();
+    if (!key) {
+      throw new Error("Set your Anthropic API key (🔑 top right) to read PDFs.");
+    }
+    // Lazy-load pdf.js (large) only when a PDF is actually uploaded.
+    const { renderPdf } = await import("./engine/pdf");
+    const pages = await renderPdf(file, onProgress);
+    let saved = 0;
+    const rejected: any[] = [];
+    const unresolved: any[] = [];
+    for (const pg of pages) {
+      onProgress?.(`Reading ${file.name} — page ${pg.page_no}/${pages.length} with AI…`);
+      const result = await claudeExtract({
+        page_no: pg.page_no,
+        page_text: pg.text,
+        page_image_b64: pg.image_b64,
+        scale: "unknown",
+        context: { concrete_grade: "M25", cover_mm: 40, currency: p.currency },
+        apiKey: key,
+      });
+      for (const raw of result.members || []) {
+        try {
+          addMemberInternal(pid, { ...raw, source: "ai" });
+          saved++;
+        } catch (e: any) {
+          rejected.push({ error: String(e.message || e), raw });
+        }
+      }
+      for (const u of result.unresolved || []) unresolved.push(u);
+    }
+    return { saved, rejected, unresolved, pages: pages.length };
   },
-  extractPage: (_did: number, _n: number): Promise<any> =>
-    Promise.reject(new Error("Drawing extraction unavailable in static build.")),
 
   seedDemo: (pid: number) => {
     getProject(pid);

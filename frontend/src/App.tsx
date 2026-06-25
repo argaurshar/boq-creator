@@ -253,24 +253,29 @@ function LeftPanel({
 }) {
   const [busy, setBusy] = useState("");
 
-  const upload = async (file: File) => {
-    setBusy("Uploading & reading PDF…");
+  const upload = async (files: FileList) => {
+    const list = Array.from(files).filter((f) => /\.pdf$/i.test(f.name));
+    if (!list.length) return;
     try {
-      const d = await api.uploadDrawing(pid, file);
-      let extracted = 0;
-      for (let n = 1; n <= (d.page_count || 0); n++) {
-        setBusy(`Extracting page ${n}/${d.page_count}…`);
-        const res = await api.extractPage(d.id, n);
-        extracted += res.saved || 0;
+      let total = 0, rejected = 0, unresolved = 0;
+      for (let i = 0; i < list.length; i++) {
+        const f = list[i];
+        setBusy(`(${i + 1}/${list.length}) ${f.name} — rendering…`);
+        const res = await api.extractDrawing(pid, f, (m) => setBusy(`(${i + 1}/${list.length}) ${m}`));
+        total += res.saved;
+        rejected += res.rejected.length;
+        unresolved += res.unresolved.length;
+        onChange();
       }
+      const notes: string[] = [];
+      if (rejected) notes.push(`${rejected} need fixing`);
+      if (unresolved) notes.push(`${unresolved} unresolved`);
       setBusy(
-        d.page_count
-          ? `Done. ${extracted} members extracted from ${d.page_count} page(s).`
-          : "Uploaded (could not read pages — is PyMuPDF installed?)."
+        `Done. Extracted ${total} element(s) from ${list.length} file(s)` +
+          (notes.length ? ` (${notes.join(", ")} — review on the left).` : ".")
       );
-      onChange();
     } catch (e: any) {
-      setBusy("Error: " + e.message);
+      setBusy("Error: " + (e.message || e));
     }
   };
 
@@ -279,17 +284,19 @@ function LeftPanel({
       <h2>Drawings & Elements</h2>
       <div className="scroll">
         <div className="card">
-          <label className="field">Upload vector PDF (architectural / structural)</label>
+          <label className="field">Upload drawing PDFs (you can select several)</label>
           <input
             type="file"
             accept="application/pdf"
-            onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+            multiple
+            onChange={(e) => e.target.files?.length && upload(e.target.files)}
           />
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
           <div style={{ marginTop: 8 }} className="muted small">
-            PDF drawing auto-extraction is coming to this hosted build. For now,
-            add elements with the <strong>chat</strong> (right) or the manual
-            form below, then review and export.
+            PDFs are read in your browser and sent page-by-page to Claude using
+            your <strong>🔑 AI key</strong> (top right). Extracted elements are
+            marked <em>review</em> — verify them before exporting. No key? Use the
+            chat or manual form below.
           </div>
           <div style={{ marginTop: 10 }} className="muted small">
             No drawing handy?
