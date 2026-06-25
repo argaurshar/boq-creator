@@ -83,6 +83,15 @@ tr.subtotal td { font-weight: 700; color: var(--accent2); }
 .small { font-size: 11px; }
 .errbar { background: #3a1212; color: #fca5a5; padding: 8px 18px; font-size: 13px;
   border-bottom: 1px solid #5b1d1d; }
+.errtext { color: #fca5a5; margin-top: 6px; }
+
+/* Modal (replaces window.prompt, which is blocked in embedded browsers) */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal { background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 18px 20px; width: 420px; max-width: 90vw;
+  box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.modal input.w { width: 100%; box-sizing: border-box; }
 a.btnlink { display: inline-block; text-decoration: none; padding: 7px 10px;
   border-radius: 6px; font-size: 13px; border: 1px solid var(--line); color: var(--text); }
 a.btnlink.accent { background: var(--accent2); border-color: var(--accent2);
