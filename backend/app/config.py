@@ -16,8 +16,9 @@ class Settings:
     # AI provider: "claude" (real) or "mock" (deterministic stub, no key needed).
     AI_PROVIDER = os.getenv("AI_PROVIDER", "mock")
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-    # Latest Claude model for vision + structured extraction.
-    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-8")
+    # Claude model for vision + structured extraction. Defaults to Sonnet
+    # (faster/cheaper than Opus, ample for extraction); override via CLAUDE_MODEL.
+    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
     UPLOAD_DIR = os.getenv("BOQ_UPLOAD_DIR", "./uploads")
     CORS_ORIGINS = os.getenv("BOQ_CORS_ORIGINS", "*").split(",")
 
