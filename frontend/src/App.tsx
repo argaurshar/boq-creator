@@ -417,6 +417,7 @@ function LeftPanel({
                         initialType={st.type}
                         initialVals={st.vals}
                         initialOpenings={st.openings}
+                        initialSegments={st.segments}
                         submitLabel="Save changes"
                         onSubmit={async (mm) => {
                           await api.updateMember(m.id, mm);
@@ -456,7 +457,7 @@ const TYPE_LABELS: Record<string, string> = {
   column: "Column", beam: "Beam", footing: "Footing", slab: "Slab",
   rcc_wall: "RCC wall", pcc: "PCC / lean concrete", brick_wall: "Brick wall",
   plaster_surface: "Plaster surface", earthwork_pit: "Earthwork pit",
-  steel_member: "Steel member",
+  steel_member: "Steel member", truss: "Steel truss",
 };
 
 type Dim = { k: string; label: string; unit?: string; def: string };
@@ -471,6 +472,7 @@ const DIMS: Record<string, Dim[]> = {
   plaster_surface: [{ k: "length_mm", label: "Length", unit: "mm", def: "4500" }, { k: "height_mm", label: "Height", unit: "mm", def: "3000" }, { k: "thickness_mm", label: "Plaster thk", unit: "mm", def: "12" }, { k: "faces", label: "Faces (1 or 2)", def: "2" }],
   earthwork_pit: [{ k: "length_mm", label: "Length", unit: "mm", def: "2000" }, { k: "breadth_mm", label: "Breadth", unit: "mm", def: "2000" }, { k: "depth_mm", label: "Depth", unit: "mm", def: "1500" }, { k: "working_offset_mm", label: "Working offset/side", unit: "mm", def: "150" }, { k: "side_slope", label: "Side slope (H:1V)", def: "0" }],
   steel_member: [{ k: "length_mm", label: "Length", unit: "mm", def: "6000" }],
+  truss: [{ k: "span_mm", label: "Span (informational)", unit: "mm", def: "12000" }],
 };
 
 const GRADES = ["M15", "M20", "M25", "M30", "M35", "M40"];
@@ -480,7 +482,7 @@ const HAS_OPENINGS = new Set(["brick_wall", "plaster_surface"]);
 const LABEL_PREFIX: Record<string, string> = {
   column: "C1", beam: "B1", footing: "F1", slab: "S1", rcc_wall: "W1",
   pcc: "PCC1", brick_wall: "BW1", plaster_surface: "P1",
-  earthwork_pit: "E1", steel_member: "ST1",
+  earthwork_pit: "E1", steel_member: "ST1", truss: "T1",
 };
 // sensible reinforcement prefills so common entry is one click
 const REIN_DEFAULTS: Record<string, Record<string, string>> = {
@@ -496,20 +498,32 @@ function defaultsFor(type: string): Record<string, string> {
   if (REINF.has(type)) v.cover_mm = type === "beam" || type === "slab" ? "25" : "40";
   for (const d of DIMS[type]) v[d.k] = d.def;
   if (type === "steel_member") v.designation = "ISMB300";
+  if (type === "truss") v.connection_pct = "5";
   Object.assign(v, REIN_DEFAULTS[type] || {});
   return v;
 }
 
 type Opening = { w: string; h: string; c: string };
+type Segment = { component: string; designation: string; length_mm: string; count: string };
+const STEEL_OPTS = Object.keys(STEEL_SECTIONS);
+function defaultSegments(): Segment[] {
+  return [
+    { component: "top chord/rafter", designation: "ISA100X100X8", length_mm: "6200", count: "2" },
+    { component: "bottom tie", designation: "ISA100X100X8", length_mm: "12000", count: "1" },
+    { component: "strut", designation: "ISA50X50X6", length_mm: "1400", count: "6" },
+    { component: "vertical", designation: "ISA50X50X6", length_mm: "900", count: "5" },
+  ];
+}
 
 // Reverse-map a stored member's params into form state, for editing.
-function formStateFromMember(p: any): { type: string; vals: Record<string, string>; openings: Opening[] } {
+function formStateFromMember(p: any): { type: string; vals: Record<string, string>; openings: Opening[]; segments: Segment[] } {
   const type = p.member_type;
   const vals: Record<string, string> = { label: p.label ?? "", count: String(p.count ?? 1) };
   if (RCC.has(type)) vals.concrete_grade = p.concrete_grade ?? "M25";
   if (REINF.has(type)) vals.cover_mm = String(p.cover_mm ?? (type === "beam" || type === "slab" ? 25 : 40));
   for (const d of DIMS[type] || []) if (p[d.k] != null) vals[d.k] = String(p[d.k]);
   if (type === "steel_member") vals.designation = p.designation ?? "";
+  if (type === "truss") vals.connection_pct = String(p.connection_pct ?? 5);
   if (type === "column") {
     if (p.main_bars?.[0]) { vals.mainCount = String(p.main_bars[0].count); vals.mainDia = String(p.main_bars[0].dia_mm); }
     if (p.ties) { vals.tieDia = String(p.ties.dia_mm); if (p.ties.spacing_mm) vals.tieSpacing = String(p.ties.spacing_mm); }
@@ -531,15 +545,22 @@ function formStateFromMember(p: any): { type: string; vals: Record<string, strin
   const openings: Opening[] = HAS_OPENINGS.has(type) && Array.isArray(p.openings)
     ? p.openings.map((o: any) => ({ w: String(o.width_mm), h: String(o.height_mm), c: String(o.count ?? 1) }))
     : [];
-  return { type, vals, openings };
+  const segments: Segment[] = type === "truss" && Array.isArray(p.segments)
+    ? p.segments.map((s: any) => ({
+        component: String(s.component ?? ""), designation: String(s.designation ?? ""),
+        length_mm: String(s.length_mm ?? ""), count: String(s.count ?? 1),
+      }))
+    : [];
+  return { type, vals, openings, segments };
 }
 
 function MemberForm({
-  initialType, initialVals, initialOpenings, submitLabel, onSubmit, onCancel,
+  initialType, initialVals, initialOpenings, initialSegments, submitLabel, onSubmit, onCancel,
 }: {
   initialType: string;
   initialVals: Record<string, string>;
   initialOpenings: Opening[];
+  initialSegments: Segment[];
   submitLabel: string;
   onSubmit: (member: any) => Promise<void>;
   onCancel?: () => void;
@@ -547,6 +568,7 @@ function MemberForm({
   const [type, setType] = useState(initialType);
   const [v, setV] = useState<Record<string, string>>(initialVals);
   const [openings, setOpenings] = useState<Opening[]>(initialOpenings);
+  const [segments, setSegments] = useState<Segment[]>(initialSegments);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -554,6 +576,7 @@ function MemberForm({
     setType(t);
     setV(defaultsFor(t));
     setOpenings([]);
+    setSegments(t === "truss" ? defaultSegments() : []);
     setErr("");
   };
   const set = (k: string, val: string) => setV((p) => ({ ...p, [k]: val }));
@@ -585,6 +608,16 @@ function MemberForm({
       if (n("distDia") && n("distSp")) m.dist_bars = { dia_mm: n("distDia"), spacing_mm: n("distSp") };
     } else if (type === "steel_member") {
       m.designation = v.designation || "";
+    } else if (type === "truss") {
+      m.connection_pct = n("connection_pct") ?? 5;
+      m.segments = segments
+        .map((s) => ({
+          component: s.component.trim(),
+          designation: s.designation.trim(),
+          length_mm: Number(s.length_mm),
+          count: Number(s.count) || 1,
+        }))
+        .filter((s) => s.designation && s.length_mm > 0);
     }
     if (HAS_OPENINGS.has(type)) {
       const ops = openings
@@ -680,6 +713,37 @@ function MemberForm({
         </Section>
       )}
 
+      {type === "truss" && (
+        <Section title="Truss members (one truss)">
+          <div className="muted small" style={{ marginBottom: 6 }}>
+            List each segment of a single truss. <em>Count</em> is the number of
+            identical trusses (top), and <em>No.</em> below is how many of that
+            segment occur in one truss.
+          </div>
+          <label className="ff" style={{ marginBottom: 6 }}>
+            <span>Connection / gusset allowance (%)</span>
+            <input type="number" value={v.connection_pct ?? "5"} onChange={(e) => set("connection_pct", e.target.value)} />
+          </label>
+          {segments.map((s, i) => (
+            <div className="ffgrid" key={i} style={{ alignItems: "end" }}>
+              <label className="ff"><span>Component</span>
+                <input value={s.component} onChange={(e) => setSegments((p) => p.map((x, j) => j === i ? { ...x, component: e.target.value } : x))} /></label>
+              <label className="ff"><span>Section</span>
+                <select value={s.designation} onChange={(e) => setSegments((p) => p.map((x, j) => j === i ? { ...x, designation: e.target.value } : x))}>
+                  {!STEEL_OPTS.includes(s.designation) && s.designation && <option value={s.designation}>{s.designation}</option>}
+                  {STEEL_OPTS.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select></label>
+              <label className="ff"><span>Length (mm)</span>
+                <input type="number" value={s.length_mm} onChange={(e) => setSegments((p) => p.map((x, j) => j === i ? { ...x, length_mm: e.target.value } : x))} /></label>
+              <label className="ff"><span>No. / truss</span>
+                <input type="number" value={s.count} onChange={(e) => setSegments((p) => p.map((x, j) => j === i ? { ...x, count: e.target.value } : x))} /></label>
+              <button className="link" onClick={() => setSegments((p) => p.filter((_, j) => j !== i))}>remove</button>
+            </div>
+          ))}
+          <button className="link" onClick={() => setSegments((p) => [...p, { component: "", designation: "ISA75X75X6", length_mm: "1000", count: "1" }])}>+ add member</button>
+        </Section>
+      )}
+
       {HAS_OPENINGS.has(type) && (
         <Section title="Openings (doors / windows)">
           {openings.map((o, i) => (
@@ -729,6 +793,7 @@ function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
         initialType="column"
         initialVals={defaultsFor("column")}
         initialOpenings={[]}
+        initialSegments={[]}
         submitLabel="Add element"
         onSubmit={async (m) => { await api.addMember(pid, m); onChange(); }}
       />

@@ -51,3 +51,54 @@ def steel_member(m) -> list[Quantity]:
                            "section not recognised (table or geometry)",
                            {"designation": m.designation}, 0.0, "IS 808")],
     )]
+
+
+def truss(m) -> list[Quantity]:
+    """A truss: an assembly of steel segments summed to a single weight.
+
+    Each segment's weight reuses :func:`resolve_steel`, so any rolled or
+    parametric section already resolves. One BOQ line per truss type, with the
+    per-segment breakdown carried in ``extra`` for the export. Mirrors the TS
+    engine's ``steel.truss``.
+    """
+    segments = m.segments or []
+    pct = 5.0 if m.connection_pct is None else m.connection_pct
+    conn = 1 + pct / 100.0
+    n = m.count
+    unknown: list[str] = []
+
+    per_truss = 0.0
+    breakdown = []
+    for s in segments:
+        L = mm_to_m(s.length_mm)
+        r = mat.resolve_steel(s.designation)
+        wt = 0.0
+        basis = r["basis"]
+        if r["unit_wt_kg_m"] is not None:
+            wt = r["unit_wt_kg_m"] * L * s.count
+        elif r["piece_wt_kg"] is not None:
+            wt = r["piece_wt_kg"] * s.count
+        else:
+            basis = "UNKNOWN SECTION"
+            unknown.append(s.designation)
+        per_truss += wt
+        breakdown.append({
+            "component": s.component, "designation": s.designation, "basis": basis,
+            "length_m": L, "count": s.count, "weight_kg": wt,
+        })
+
+    total = per_truss * conn * n
+    desc = f"Steel truss {m.label}".strip()
+    if unknown:
+        desc += f" — {len(unknown)} unknown section(s)"
+    return [Quantity(
+        category="steel",
+        description=desc,
+        unit="kg", value=total, nos=n,
+        audit=[FormulaStep(
+            "steel.truss.weight",
+            "sum(segment_wt) * (1 + connection_pct) * count",
+            {"per_truss_kg": per_truss, "connection_pct": pct,
+             "count": n, "segments": breakdown}, total, "IS 808 / SP 6(1)")],
+        extra={"truss_segments": breakdown, "per_truss_kg": per_truss},
+    )]

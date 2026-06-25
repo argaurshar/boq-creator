@@ -13,8 +13,15 @@ areas or sums. A separate deterministic engine does all arithmetic.
 
 Capture columns, beams (incl. plinth/lintel), footings, slabs, RCC walls, PCC,
 brick/masonry walls with door/window openings, plaster on wall faces, earthwork
-pits, and structural steel members (by designation). Use 'count' for repeated
-members.
+pits, structural steel members (by designation), and STEEL TRUSSES / roof frames.
+Use 'count' for repeated members.
+
+STEEL TRUSSES — important and often missed: when the page shows a truss, roof
+frame or braced frame (top chord/rafter, bottom chord/tie, struts, verticals,
+end posts), capture it as ONE 'truss' member, NOT as scattered steel_members.
+Read the truss member schedule and the marked sections; list every segment with
+its section designation, length, and how many of that segment occur in ONE truss.
+Set the truss 'count' to the number of identical trusses. Include web members.
 
 READING DIMENSIONS: prefer numbers in schedule tables and on dimension lines; if
 a dimension is not labelled but the page gives a scale (e.g. "1:100") or a scale
@@ -56,6 +63,12 @@ millimetres, exactly as read. Every member carries: label, count, confidence
             working_offset_mm, contains_labels:[labels of footings/PCC inside the pit,
             for automatic backfill netting]}
 - steel_member:{member_type, label, count, designation, length_mm}
+- truss:   {member_type, label, count, span_mm, connection_pct, segments:[
+            {component:"top chord/rafter"|"bottom tie"|"strut"|"vertical"|...,
+             designation:"e.g. ISA 75X75X6", length_mm, count (per ONE truss)}]}
+            // 'count' = number of identical trusses; segment 'count' = how many
+            // of that segment in a single truss. Prefer ONE truss over many
+            // loose steel_members.
 
 Rules:
 - If a needed dimension is missing or illegible, set it to null and add an entry

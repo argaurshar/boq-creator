@@ -84,6 +84,34 @@ function bbsSheet(boq: Boq): XLSX.WorkSheet {
   return ws;
 }
 
+// Per-segment breakdown for every truss (rafter / tie / strut / vertical …).
+// Returns null when there are no trusses, so the sheet is only added when useful.
+function trussSheet(boq: Boq): XLSX.WorkSheet | null {
+  const cols = ["Truss", "Component", "Section", "Length (m)", "No. / truss",
+    "Weight (kg)", "Basis"];
+  const aoa: any[][] = [cols];
+  let found = false;
+  for (const group of boq.groups) {
+    if (group.category !== "steel") continue;
+    for (const it of group.items) {
+      const segs = (it.extra?.truss_segments as any[]) || [];
+      if (!segs.length) continue;
+      found = true;
+      for (const s of segs) {
+        aoa.push([it.description, s.component, s.designation,
+          r3(s.length_m), s.count, pyRound(s.weight_kg, 2), s.basis]);
+      }
+      if (it.extra?.per_truss_kg != null) {
+        aoa.push(["", "", "", "", "Per truss:", pyRound(it.extra.per_truss_kg, 2), ""]);
+      }
+    }
+  }
+  if (!found) return null;
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = cols.map((c, i) => ({ wch: i === 0 ? 28 : Math.max(12, c.length + 2) }));
+  return ws;
+}
+
 function assumptionsSheet(project: any, boq: Boq): XLSX.WorkSheet {
   const aoa: any[][] = [["Assumptions & Basis of Measurement"]];
   const rows: [string, string][] = [
@@ -111,6 +139,8 @@ export function downloadBoqXlsx(project: any, boq: Boq): void {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, boqSheet(project, boq), "BOQ");
   XLSX.utils.book_append_sheet(wb, bbsSheet(boq), "Bar Bending Schedule");
+  const trusses = trussSheet(boq);
+  if (trusses) XLSX.utils.book_append_sheet(wb, trusses, "Steel Truss Details");
   XLSX.utils.book_append_sheet(wb, assumptionsSheet(project, boq), "Assumptions");
   const fname = `BOQ_${String(project.name || "Project").replace(/ /g, "_")}.xlsx`;
   XLSX.writeFile(wb, fname);
