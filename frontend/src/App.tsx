@@ -21,19 +21,16 @@ export default function App() {
   const [rates, setRates] = useState<RateRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState<boolean>(() => !!getApiKey());
+  // In-app dialogs instead of window.prompt(): the latter is blocked in
+  // sandboxed/embedded browsers (e.g. VS Code's Simple Browser).
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [showKey, setShowKey] = useState(false);
 
   const project = projects.find((p) => p.id === pid) || null;
 
-  const editKey = () => {
-    const next = prompt(
-      "Paste your Anthropic API key to enable live AI drawing extraction and " +
-        "plain-English editing.\n\nThe key is stored only in this browser and " +
-        "sent directly to your backend per request — never saved server-side. " +
-        "Leave blank to remove it (the app then uses the key-free demo mode).",
-      getApiKey()
-    );
-    if (next === null) return; // cancelled
-    const key = next.trim();
+  const saveKey = (raw: string) => {
+    setShowKey(false);
+    const key = raw.trim();
     setApiKey(key);
     setHasKey(!!key);
   };
@@ -68,12 +65,17 @@ export default function App() {
     if (pid !== null) refresh(pid);
   }, [pid, refresh]);
 
-  const createProject = async () => {
-    const name = prompt("Project name?", "New Project");
+  const createProject = async (rawName: string) => {
+    setShowNewProject(false);
+    const name = rawName.trim();
     if (!name) return;
-    const p = await api.createProject({ name });
-    setProjects((ps) => [p, ...ps]);
-    setPid(p.id);
+    try {
+      const p = await api.createProject({ name });
+      setProjects((ps) => [p, ...ps]);
+      setPid(p.id);
+    } catch (e: any) {
+      setError("Could not create project: " + e.message);
+    }
   };
 
   return (
@@ -84,7 +86,7 @@ export default function App() {
         <div className="spacer" />
         <button
           className={hasKey ? "keybtn set" : "keybtn"}
-          onClick={editKey}
+          onClick={() => setShowKey(true)}
           title={
             hasKey
               ? "An Anthropic API key is set in this browser. Click to change or remove it."
@@ -106,7 +108,7 @@ export default function App() {
             </option>
           ))}
         </select>
-        <button onClick={createProject}>+ Project</button>
+        <button onClick={() => setShowNewProject(true)}>+ Project</button>
         {pid !== null && (
           <a className="btnlink accent" href={api.exportUrl(pid)} download>
             ⬇ Export Excel
@@ -117,8 +119,17 @@ export default function App() {
 
       {pid === null ? (
         <div className="empty">
-          Create a project to begin. Upload drawings, add elements in plain
-          English, review the BOQ, then export to Excel.
+          <div>
+            Create a project to begin. Upload drawings, add elements in plain
+            English, review the BOQ, then export to Excel.
+          </div>
+          <button
+            className="primary"
+            style={{ marginTop: 14 }}
+            onClick={() => setShowNewProject(true)}
+          >
+            + Create project
+          </button>
         </div>
       ) : (
         <div className="body">
@@ -136,6 +147,88 @@ export default function App() {
           />
         </div>
       )}
+
+      {showNewProject && (
+        <PromptModal
+          title="New project"
+          label="Project name"
+          defaultValue="New Project"
+          submitLabel="Create"
+          onSubmit={createProject}
+          onClose={() => setShowNewProject(false)}
+        />
+      )}
+      {showKey && (
+        <PromptModal
+          title="Anthropic API key"
+          label="API key"
+          defaultValue={getApiKey()}
+          password
+          submitLabel="Save"
+          message={
+            "Enables live AI drawing extraction and plain-English editing. " +
+            "Stored only in this browser and sent to your backend per request — " +
+            "never saved server-side. Leave blank to remove it (the app then " +
+            "uses the key-free demo mode)."
+          }
+          onSubmit={saveKey}
+          onClose={() => setShowKey(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- Modal */
+function PromptModal({
+  title,
+  label,
+  message,
+  defaultValue,
+  password,
+  submitLabel,
+  onSubmit,
+  onClose,
+}: {
+  title: string;
+  label: string;
+  message?: string;
+  defaultValue?: string;
+  password?: boolean;
+  submitLabel?: string;
+  onSubmit: (value: string) => void;
+  onClose: () => void;
+}) {
+  const [val, setVal] = useState(defaultValue ?? "");
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 8px" }}>{title}</h3>
+        {message && (
+          <p className="muted small" style={{ marginTop: 0 }}>{message}</p>
+        )}
+        <label className="field">{label}</label>
+        <input
+          className="w"
+          autoFocus
+          type={password ? "password" : "text"}
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onSubmit(val);
+            if (e.key === "Escape") onClose();
+          }}
+        />
+        <div
+          className="row"
+          style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}
+        >
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" onClick={() => onSubmit(val)}>
+            {submitLabel ?? "OK"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -260,13 +353,15 @@ function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
   const [json, setJson] = useState(
     '{"label":"C1","b_mm":300,"D_mm":600,"height_mm":3000,"count":1}'
   );
+  const [err, setErr] = useState("");
   const add = async () => {
     try {
       const body = { member_type: type, ...JSON.parse(json) };
       await api.addMember(pid, body);
+      setErr("");
       onChange();
     } catch (e: any) {
-      alert("Invalid: " + e.message);
+      setErr("Invalid: " + e.message);
     }
   };
   return (
@@ -280,6 +375,7 @@ function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
       </select>
       <label className="field">Params (JSON, mm)</label>
       <textarea rows={3} value={json} onChange={(e) => setJson(e.target.value)} />
+      {err && <div className="errtext small">{err}</div>}
       <button className="primary" style={{ marginTop: 8 }} onClick={add}>
         Add
       </button>
