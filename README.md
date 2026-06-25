@@ -10,8 +10,8 @@ unit-tested engine does **all** the arithmetic, so every quantity is auditable.
 > **Live (GitHub Pages):** **https://argaurshar.github.io/boq-creator/** — a
 > fully static build that runs the entire quantity engine, BOQ, Excel export and
 > NL editing **in your browser** (no server, nothing to install). Data is saved
-> in your browser; live AI drawing extraction uses your own Anthropic key via
-> **🔑 Set AI key**. (PDF auto-extraction is being added to this build.)
+> in your browser; live AI drawing extraction (upload one or more PDFs, read
+> page-by-page with Claude) uses your own Anthropic key via **🔑 Set AI key**.
 >
 > **Or run the full app on GitHub in one click:** press the **Open in
 > Codespaces** badge above (or *Code ▸ Codespaces ▸ Create codespace*).
