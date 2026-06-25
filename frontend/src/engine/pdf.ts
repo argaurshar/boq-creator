@@ -13,7 +13,7 @@ export interface RenderedPage {
   image_b64: string; // base64 PNG (no data: prefix)
 }
 
-const MAX_PX = 2000; // cap the longest edge to bound image token cost
+const MAX_PX = 2600; // longest edge — higher res so small dimension text is legible
 
 export async function renderPdf(
   file: File,
