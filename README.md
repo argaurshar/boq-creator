@@ -1,9 +1,16 @@
 # BOQ Creator
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/argaurshar/boq-creator)
+
 Upload architectural & structural drawings → get a complete, IS-code **Bill of
 Quantities** back, in-app and as Excel. Architects/engineers stay in control:
 the AI only *reads* drawings into typed structural members; a deterministic,
 unit-tested engine does **all** the arithmetic, so every quantity is auditable.
+
+> **Run it on GitHub in one click:** press the **Open in Codespaces** badge
+> above (or *Code ▸ Codespaces ▸ Create codespace*). Dependencies install
+> automatically and both servers start; when prompted, open the forwarded
+> **port 5173** to use the app. Then click **+ Project → Load demo data**.
 
 > **Read [`project.md`](./project.md) first — it is the soul of the project.**
 > It defines the one principle everything follows from: *a hard wall between AI
