@@ -110,9 +110,16 @@ export default function App() {
         </select>
         <button onClick={() => setShowNewProject(true)}>+ Project</button>
         {pid !== null && (
-          <a className="btnlink accent" href={api.exportUrl(pid)} download>
+          <button
+            className="accent"
+            onClick={() => {
+              api.exportXlsx(pid).catch((e: any) =>
+                setError("Export failed: " + e.message)
+              );
+            }}
+          >
             ⬇ Export Excel
-          </a>
+          </button>
         )}
       </div>
       {error && <div className="errbar">{error}</div>}
@@ -279,9 +286,9 @@ function LeftPanel({
           />
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
           <div style={{ marginTop: 8 }} className="muted small">
-            Auto-extraction from drawings needs an Anthropic API key — set it via
-            <strong> 🔑 Set AI key</strong> (top right). Without a key you can
-            still add elements manually or by chat.
+            PDF drawing auto-extraction is coming to this hosted build. For now,
+            add elements with the <strong>chat</strong> (right) or the manual
+            form below, then review and export.
           </div>
           <div style={{ marginTop: 10 }} className="muted small">
             No drawing handy?

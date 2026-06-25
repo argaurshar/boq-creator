@@ -7,10 +7,16 @@ Quantities** back, in-app and as Excel. Architects/engineers stay in control:
 the AI only *reads* drawings into typed structural members; a deterministic,
 unit-tested engine does **all** the arithmetic, so every quantity is auditable.
 
-> **Run it on GitHub in one click:** press the **Open in Codespaces** badge
-> above (or *Code ▸ Codespaces ▸ Create codespace*). Dependencies install
-> automatically and both servers start; when prompted, open the forwarded
-> **port 5173** to use the app. Then click **+ Project → Load demo data**.
+> **Live (GitHub Pages):** **https://argaurshar.github.io/boq-creator/** — a
+> fully static build that runs the entire quantity engine, BOQ, Excel export and
+> NL editing **in your browser** (no server, nothing to install). Data is saved
+> in your browser; live AI drawing extraction uses your own Anthropic key via
+> **🔑 Set AI key**. (PDF auto-extraction is being added to this build.)
+>
+> **Or run the full app on GitHub in one click:** press the **Open in
+> Codespaces** badge above (or *Code ▸ Codespaces ▸ Create codespace*).
+> Dependencies install automatically and both servers start; open the forwarded
+> **port 5173**. Then click **+ Project → Load demo data**.
 
 > **Read [`project.md`](./project.md) first — it is the soul of the project.**
 > It defines the one principle everything follows from: *a hard wall between AI
@@ -69,6 +75,23 @@ cd frontend
 npm install
 npm run dev     # http://localhost:5173 (proxies /api to :8000)
 ```
+
+### Hosting on GitHub Pages (static, no backend)
+
+The frontend ships a **self-contained build**: the quantity engine, BOQ
+assembly, cross-member netting, Excel export and NL parsing are ported to
+TypeScript and run entirely in the browser (`frontend/src/engine/`). The ported
+engine is verified to produce **the same numbers** as the Python engine. This is
+what's deployed to GitHub Pages by `.github/workflows/pages.yml` on every push
+to `main`.
+
+To enable it once: **Settings → Pages → Build and deployment → Source: GitHub
+Actions**. The site then publishes to `https://<user>.github.io/boq-creator/`.
+Data is stored per-browser (localStorage); the Anthropic key (for AI features)
+is entered in the UI and kept only in the browser.
+
+The Python backend remains for local/Codespaces use and as the reference
+implementation the tests pin; the Pages build does not need it.
 
 ### Tests
 

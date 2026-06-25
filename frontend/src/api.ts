@@ -1,4 +1,19 @@
-// Typed client for the BOQ Creator backend. Mirrors app/schemas + routes.
+// In-browser "backend": the static (GitHub Pages) build runs the ported
+// quantity engine locally and persists data in localStorage. The public API
+// mirrors the old fetch client so the UI is unchanged. The Python backend
+// still exists for local/Codespaces use, but this build does not need it.
+
+import { buildBoq, StoredMember, Boq, BoqItem, BoqGroup } from "./engine/boq";
+import { validateMember } from "./engine/members";
+import { computeMember } from "./engine/compute";
+import { roundQty } from "./engine/units";
+import { CATEGORY_ORDER } from "./engine/compute";
+import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
+import { mockParseNl } from "./engine/nl";
+import { claudeParseNl } from "./engine/claude";
+import { downloadBoqXlsx } from "./engine/export";
+
+export type { Boq, BoqItem, BoqGroup };
 
 export interface Project {
   id: number;
@@ -6,38 +21,6 @@ export interface Project {
   client: string;
   location: string;
   currency: string;
-}
-
-export interface BoqItem {
-  member_id: number | null;
-  source: string;
-  confidence: number;
-  is_verified: boolean;
-  category: string;
-  description: string;
-  unit: string;
-  quantity: number;
-  nos: number | null;
-  length_m: number | null;
-  breadth_m: number | null;
-  depth_m: number | null;
-  rate: number;
-  amount: number;
-  audit: any[];
-  extra: Record<string, any>;
-}
-
-export interface BoqGroup {
-  category: string;
-  label: string;
-  items: BoqItem[];
-  subtotal: number;
-}
-
-export interface Boq {
-  groups: BoqGroup[];
-  grand_total: number;
-  errors: any[];
 }
 
 export interface RateRow {
@@ -57,101 +40,210 @@ export interface Member {
   is_verified: boolean;
 }
 
-async function j<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
-  return res.json();
-}
-
-// --- Bring-your-own Anthropic key ------------------------------------------
-// The key is kept only in this browser (localStorage) and attached to the AI
-// endpoints (extract, nl-edit) as a per-request header. It is never persisted
-// server-side. With no key set, those endpoints fall back to the mock provider.
+// --------------------------------------------------------------------------- //
+// Bring-your-own Anthropic key (kept only in this browser).
+// --------------------------------------------------------------------------- //
 const KEY_STORAGE = "boq.anthropicApiKey";
 
 export function getApiKey(): string {
-  try {
-    return localStorage.getItem(KEY_STORAGE) || "";
-  } catch {
-    return "";
-  }
+  try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; }
 }
-
 export function setApiKey(key: string): void {
   try {
     if (key) localStorage.setItem(KEY_STORAGE, key);
     else localStorage.removeItem(KEY_STORAGE);
-  } catch {
-    /* ignore storage failures (private mode, etc.) */
-  }
+  } catch { /* ignore */ }
 }
 
-function aiHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const k = getApiKey();
-  return k ? { ...extra, "X-Anthropic-Api-Key": k } : extra;
+// --------------------------------------------------------------------------- //
+// localStorage-backed store
+// --------------------------------------------------------------------------- //
+interface Store {
+  seq: number;
+  projects: Project[];
+  members: Record<number, Member[]>;
+  rates: Record<number, Record<string, number>>;
 }
+
+const STORE_KEY = "boq.store.v1";
+
+function load(): Store {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return JSON.parse(raw) as Store;
+  } catch { /* ignore */ }
+  return { seq: 1, projects: [], members: {}, rates: {} };
+}
+
+let store: Store = load();
+
+function save(): void {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* ignore */ }
+}
+
+function nextId(): number {
+  return store.seq++;
+}
+
+function getProject(pid: number): Project {
+  const p = store.projects.find((x) => x.id === pid);
+  if (!p) throw new Error("Project not found");
+  return p;
+}
+
+function memberDTO(m: Member): Member {
+  return { id: m.id, member_type: m.member_type, label: m.label, params: m.params,
+    source: m.source, confidence: m.confidence, is_verified: m.is_verified };
+}
+
+function addMemberInternal(pid: number, raw: any, forceSource?: string): Member {
+  getProject(pid);
+  const body = forceSource ? { ...raw, source: forceSource } : raw;
+  const m = validateMember(body); // throws on invalid
+  const rec: Member = {
+    id: nextId(),
+    member_type: m.member_type,
+    label: m.label,
+    params: m,
+    source: m.source,
+    confidence: m.confidence,
+    is_verified: m.source === "manual",
+  };
+  (store.members[pid] ||= []).push(rec);
+  save();
+  return memberDTO(rec);
+}
+
+const KNOWN_CATS = new Set(CATEGORY_ORDER.map(([c]) => c));
+
+// Simulate async so callers using await keep working.
+const ok = <T>(v: T): Promise<T> => Promise.resolve(v);
 
 export const api = {
-  listProjects: () => fetch("/api/projects").then((r) => j<Project[]>(r)),
-  createProject: (body: Partial<Project>) =>
-    fetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then((r) => j<Project>(r)),
+  listProjects: () => ok([...store.projects].sort((a, b) => b.id - a.id)),
 
-  getBoq: (pid: number) => fetch(`/api/projects/${pid}/boq`).then((r) => j<Boq>(r)),
-  listMembers: (pid: number) =>
-    fetch(`/api/projects/${pid}/members`).then((r) => j<Member[]>(r)),
-  addMember: (pid: number, body: any) =>
-    fetch(`/api/projects/${pid}/members`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then((r) => j<Member>(r)),
-  deleteMember: (mid: number) =>
-    fetch(`/api/members/${mid}`, { method: "DELETE" }).then((r) => j(r)),
-  verifyMember: (mid: number) =>
-    fetch(`/api/members/${mid}/verify`, { method: "POST" }).then((r) => j(r)),
-
-  listRates: (pid: number) =>
-    fetch(`/api/projects/${pid}/rates`).then((r) => j<RateRow[]>(r)),
-  setRate: (pid: number, category: string, rate: number) =>
-    fetch(`/api/projects/${pid}/rates`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category, rate }),
-    }).then((r) => j(r)),
-
-  nlEdit: (pid: number, text: string) =>
-    fetch(`/api/projects/${pid}/nl-edit`, {
-      method: "POST",
-      headers: aiHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ text }),
-    }).then((r) => j<{ provider: string; result: any; preview: any }>(r)),
-  nlApply: (pid: number, member: any) =>
-    fetch(`/api/projects/${pid}/nl-edit/apply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member }),
-    }).then((r) => j<Member>(r)),
-
-  uploadDrawing: (pid: number, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    return fetch(`/api/projects/${pid}/drawings`, { method: "POST", body: fd }).then(
-      (r) => j<any>(r)
-    );
+  createProject: (body: Partial<Project>) => {
+    const p: Project = {
+      id: nextId(),
+      name: body.name || "Untitled Project",
+      client: body.client || "",
+      location: body.location || "",
+      currency: body.currency || "INR",
+    };
+    store.projects.push(p);
+    store.members[p.id] = [];
+    store.rates[p.id] = {};
+    save();
+    return ok(p);
   },
-  extractPage: (did: number, n: number) =>
-    fetch(`/api/drawings/${did}/pages/${n}/extract`, {
-      method: "POST",
-      headers: aiHeaders(),
-    }).then((r) => j<any>(r)),
 
-  seedDemo: (pid: number) =>
-    fetch(`/api/projects/${pid}/seed`, { method: "POST" }).then((r) =>
-      j<{ seeded_members: number }>(r)
-    ),
+  getBoq: (pid: number): Promise<Boq> => {
+    getProject(pid);
+    const rows: StoredMember[] = (store.members[pid] || []).map((m) => ({
+      id: m.id, params: m.params, source: m.source, confidence: m.confidence,
+      is_verified: m.is_verified, label: m.label,
+    }));
+    return ok(buildBoq(rows, store.rates[pid] || {}));
+  },
 
-  exportUrl: (pid: number) => `/api/projects/${pid}/export/xlsx`,
+  listMembers: (pid: number) =>
+    ok((store.members[pid] || []).map(memberDTO)),
+
+  addMember: (pid: number, body: any) => ok(addMemberInternal(pid, body)),
+
+  deleteMember: (mid: number) => {
+    for (const pid of Object.keys(store.members)) {
+      const arr = store.members[Number(pid)];
+      const i = arr.findIndex((m) => m.id === mid);
+      if (i >= 0) { arr.splice(i, 1); save(); break; }
+    }
+    return ok({ deleted: mid });
+  },
+
+  verifyMember: (mid: number) => {
+    for (const pid of Object.keys(store.members)) {
+      const m = store.members[Number(pid)].find((x) => x.id === mid);
+      if (m) { m.is_verified = true; save(); return ok(memberDTO(m)); }
+    }
+    return ok({ error: "not found" });
+  },
+
+  listRates: (pid: number): Promise<RateRow[]> => {
+    getProject(pid);
+    const r = store.rates[pid] || {};
+    return ok(CATEGORY_ORDER.map(([category, label]) => ({
+      category, label, unit: DEFAULT_UNITS[category] || "", rate: r[category] ?? 0,
+    })));
+  },
+
+  setRate: (pid: number, category: string, rate: number) => {
+    getProject(pid);
+    if (!KNOWN_CATS.has(category)) throw new Error(`Unknown category '${category}'`);
+    (store.rates[pid] ||= {})[category] = rate;
+    save();
+    return ok({ category, rate });
+  },
+
+  nlEdit: async (pid: number, text: string) => {
+    const p = getProject(pid);
+    const key = getApiKey();
+    const context = { currency: p.currency, default_grade: "M25" };
+    let result: any;
+    let provider: string;
+    if (key) {
+      provider = "claude";
+      result = await claudeParseNl(text, context, key);
+    } else {
+      provider = "mock";
+      result = mockParseNl(text);
+    }
+    let preview: any = null;
+    if (result.op === "add" && result.member) {
+      try {
+        const m = validateMember(result.member);
+        preview = {
+          member: m,
+          quantities: computeMember(m).map((q) => ({
+            category: q.category, unit: q.unit, rounded: roundQty(q.value, q.unit),
+          })),
+        };
+      } catch (e: any) {
+        result.op = "noop";
+        result.message = "Parsed but invalid: " + (e.message || e);
+      }
+    }
+    return { provider, result, preview };
+  },
+
+  nlApply: (pid: number, member: any) => ok(addMemberInternal(pid, member, "nl")),
+
+  uploadDrawing: (_pid: number, _file: File): Promise<any> => {
+    return Promise.reject(new Error(
+      "PDF drawing extraction isn't available in this static build yet. " +
+      "Add elements with the chat (right) or the manual form, or set your AI key."
+    ));
+  },
+  extractPage: (_did: number, _n: number): Promise<any> =>
+    Promise.reject(new Error("Drawing extraction unavailable in static build.")),
+
+  seedDemo: (pid: number) => {
+    getProject(pid);
+    let added = 0;
+    for (const raw of DEMO_MEMBERS) {
+      addMemberInternal(pid, { ...raw, source: "manual" });
+      added += 1;
+    }
+    const r = (store.rates[pid] ||= {});
+    for (const [cat, rate] of Object.entries(DEMO_RATES)) {
+      if (r[cat] === undefined) r[cat] = rate;
+    }
+    save();
+    return ok({ seeded_members: added });
+  },
+
+  exportXlsx: async (pid: number) => {
+    const p = getProject(pid);
+    const boq = await api.getBoq(pid);
+    downloadBoqXlsx(p, boq);
+  },
 };
