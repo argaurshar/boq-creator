@@ -1,4 +1,10 @@
-"""Environment-driven settings. AI keys stay server-side (never sent to client)."""
+"""Environment-driven settings.
+
+ANTHROPIC_API_KEY here is the optional *server-side* key. Users may instead
+bring their own key from the frontend (sent per request via the
+``X-Anthropic-Api-Key`` header); either way the key only flows toward Anthropic
+and is never sent back to the client.
+"""
 from __future__ import annotations
 
 import os

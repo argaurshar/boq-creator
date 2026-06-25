@@ -32,6 +32,9 @@ button { cursor: pointer; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.accent { background: var(--accent2); border-color: var(--accent2); color: #04221f; font-weight: 600; }
 button:hover { filter: brightness(1.1); }
+button.keybtn { border-style: dashed; color: var(--muted); }
+button.keybtn.set { border-style: solid; border-color: var(--accent2);
+  color: var(--accent2); font-weight: 600; }
 .spacer { flex: 1; }
 
 .body { display: flex; flex: 1; overflow: hidden; }

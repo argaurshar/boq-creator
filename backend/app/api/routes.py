@@ -10,7 +10,7 @@ import os
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -169,7 +169,12 @@ def set_scale(did: int, n: int, body: ScaleIn, db: Session = Depends(get_db)):
 
 
 @router.post("/drawings/{did}/pages/{n}/extract")
-def extract_page(did: int, n: int, db: Session = Depends(get_db)):
+def extract_page(
+    did: int,
+    n: int,
+    db: Session = Depends(get_db),
+    x_anthropic_api_key: str | None = Header(default=None),
+):
     d = db.get(Drawing, did)
     if not d:
         raise HTTPException(404, "Drawing not found")
@@ -177,12 +182,16 @@ def extract_page(did: int, n: int, db: Session = Depends(get_db)):
     from ..pdf import loader
     page = loader.render_page(d.storage_path, n)
     scale = (d.scale_per_page or {}).get(str(n)) or "unknown"
-    provider = get_provider()
-    result = provider.extract_members(
-        page_no=n, page_text=page.text, page_image_b64=page.image_b64,
-        scale=scale,
-        context={"concrete_grade": "M25", "cover_mm": 40, "currency": project.currency},
-    )
+    provider = get_provider(x_anthropic_api_key)
+    try:
+        result = provider.extract_members(
+            page_no=n, page_text=page.text, page_image_b64=page.image_b64,
+            scale=scale,
+            context={"concrete_grade": "M25", "cover_mm": 40,
+                     "currency": project.currency},
+        )
+    except Exception as exc:  # surface auth/quota/network errors as a clear 502
+        raise HTTPException(502, f"AI extraction failed: {exc}")
 
     saved, rejected = [], []
     for raw in result.get("members", []):
@@ -345,11 +354,20 @@ def set_rate(pid: int, body: RateIn, db: Session = Depends(get_db)):
 # Natural-language edit (propose -> apply)
 # --------------------------------------------------------------------------- #
 @router.post("/projects/{pid}/nl-edit")
-def nl_edit(pid: int, body: NlIn, db: Session = Depends(get_db)):
+def nl_edit(
+    pid: int,
+    body: NlIn,
+    db: Session = Depends(get_db),
+    x_anthropic_api_key: str | None = Header(default=None),
+):
     p = _get_project(db, pid)
-    provider = get_provider()
-    result = provider.parse_nl_edit(
-        text=body.text, context={"currency": p.currency, "default_grade": "M25"})
+    provider = get_provider(x_anthropic_api_key)
+    try:
+        result = provider.parse_nl_edit(
+            text=body.text,
+            context={"currency": p.currency, "default_grade": "M25"})
+    except Exception as exc:  # surface auth/quota/network errors as a clear 502
+        raise HTTPException(502, f"AI parsing failed: {exc}")
 
     preview = None
     if result.get("op") == "add" and result.get("member"):

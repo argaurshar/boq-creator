@@ -51,8 +51,16 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Runs key-free by default (`AI_PROVIDER=mock`): plain-English add, manual add,
-quantities, rates and Excel export all work. For automatic drawing extraction,
-set `AI_PROVIDER=claude` and `ANTHROPIC_API_KEY` (see `.env.example`).
+quantities, rates and Excel export all work.
+
+For **live AI drawing extraction** you need an Anthropic API key. Two ways:
+
+- **In the app (recommended for shared/hosted instances):** click
+  **🔑 Set AI key** in the top bar and paste your key. It is stored only in
+  your browser and sent to the backend per request — never saved server-side —
+  so the host can stay key-less and each user brings their own.
+- **Server-side:** set `AI_PROVIDER=claude` and `ANTHROPIC_API_KEY` in the
+  environment (see `.env.example`).
 
 ### Frontend
 
