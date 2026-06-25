@@ -263,9 +263,12 @@ function LeftPanel({
   onChange: () => void;
 }) {
   const [busy, setBusy] = useState("");
+  const [staged, setStaged] = useState<File[]>([]);
+  const [editing, setEditing] = useState<number | null>(null);
+  const running = !!busy && busy.endsWith("…");
 
-  const upload = async (files: FileList) => {
-    const list = Array.from(files).filter((f) => /\.pdf$/i.test(f.name));
+  const runExtraction = async () => {
+    const list = staged;
     if (!list.length) return;
     try {
       let total = 0, rejected = 0, unresolved = 0;
@@ -283,8 +286,9 @@ function LeftPanel({
       if (unresolved) notes.push(`${unresolved} unresolved`);
       setBusy(
         `Done. Extracted ${total} element(s) from ${list.length} file(s)` +
-          (notes.length ? ` (${notes.join(", ")} — review on the left).` : ".")
+          (notes.length ? ` (${notes.join(", ")} — review & edit below).` : ".")
       );
+      setStaged([]);
     } catch (e: any) {
       setBusy("Error: " + (e.message || e));
     }
@@ -300,14 +304,54 @@ function LeftPanel({
             type="file"
             accept="application/pdf"
             multiple
-            onChange={(e) => e.target.files?.length && upload(e.target.files)}
+            disabled={running}
+            onChange={(e) => {
+              const files = e.target.files ? Array.from(e.target.files) : [];
+              if (files.length) {
+                setStaged((prev) => {
+                  const names = new Set(prev.map((f) => f.name + f.size));
+                  return [...prev, ...files.filter((f) => !names.has(f.name + f.size))];
+                });
+                setBusy("");
+              }
+              e.target.value = "";
+            }}
           />
+          {staged.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div className="muted small">{staged.length} drawing(s) ready:</div>
+              {staged.map((f, i) => (
+                <div className="row" key={f.name + f.size} style={{ gap: 6, alignItems: "center" }}>
+                  <span className="small">📄 {f.name}</span>
+                  <div className="spacer" />
+                  {!running && (
+                    <button
+                      className="link"
+                      onClick={() => setStaged((p) => p.filter((_, j) => j !== i))}
+                    >
+                      remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                className="primary"
+                style={{ marginTop: 8 }}
+                disabled={!staged.length || running}
+                onClick={runExtraction}
+              >
+                {running ? "Reading drawings…" : "⚙ Proceed — generate BOQ"}
+              </button>
+            </div>
+          )}
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
           <div style={{ marginTop: 8 }} className="muted small">
-            PDFs are read in your browser and sent page-by-page to Claude using
-            your <strong>🔑 AI key</strong> (top right). Extracted elements are
-            marked <em>review</em> — verify them before exporting. No key? Use the
-            chat or manual form below.
+            Select your PDFs, then press <strong>Proceed</strong>. Drawings are
+            read in your browser and sent page-by-page to Claude with your{" "}
+            <strong>🔑 AI key</strong> (top right) to take off every quantity it
+            can read — concrete, RCC/PCC, reinforcement, structural steel and
+            more. Extracted elements are marked <em>review</em>; edit any of them
+            below before exporting. No key? Use the chat or manual form below.
           </div>
           <div style={{ marginTop: 10 }} className="muted small">
             No drawing handy?
@@ -334,41 +378,75 @@ function LeftPanel({
         <div className="muted" style={{ margin: "4px 0 8px" }}>
           {members.length} element(s)
         </div>
-        {members.map((m) => (
-          <div className="card" key={m.id}>
-            <div className="row">
-              <strong>{m.label || m.member_type}</strong>
-              <span className={`badge ${m.source}`}>{m.source}</span>
-              <span
-                className={`badge ${m.is_verified ? "verified" : "unverified"}`}
-              >
-                {m.is_verified ? "verified" : "review"}
-              </span>
-              <div className="spacer" />
-              <button
-                className="link"
-                onClick={async () => {
-                  await api.deleteMember(m.id);
-                  onChange();
-                }}
-              >
-                delete
-              </button>
+        {members.map((m) => {
+          const isEditing = editing === m.id;
+          return (
+            <div className="card" key={m.id}>
+              <div className="row">
+                <strong>{m.label || m.member_type}</strong>
+                <span className={`badge ${m.source}`}>{m.source}</span>
+                <span
+                  className={`badge ${m.is_verified ? "verified" : "unverified"}`}
+                >
+                  {m.is_verified ? "verified" : "review"}
+                </span>
+                <div className="spacer" />
+                <button
+                  className="link"
+                  onClick={() => setEditing(isEditing ? null : m.id)}
+                >
+                  {isEditing ? "close" : "edit"}
+                </button>
+                <button
+                  className="link"
+                  onClick={async () => {
+                    if (isEditing) setEditing(null);
+                    await api.deleteMember(m.id);
+                    onChange();
+                  }}
+                >
+                  delete
+                </button>
+              </div>
+              {isEditing ? (
+                <div style={{ marginTop: 8 }}>
+                  {(() => {
+                    const st = formStateFromMember(m.params);
+                    return (
+                      <MemberForm
+                        initialType={st.type}
+                        initialVals={st.vals}
+                        initialOpenings={st.openings}
+                        submitLabel="Save changes"
+                        onSubmit={async (mm) => {
+                          await api.updateMember(m.id, mm);
+                          setEditing(null);
+                          onChange();
+                        }}
+                        onCancel={() => setEditing(null)}
+                      />
+                    );
+                  })()}
+                </div>
+              ) : (
+                <>
+                  <div className="muted small">{m.member_type}</div>
+                  {!m.is_verified && (
+                    <button
+                      className="link"
+                      onClick={async () => {
+                        await api.verifyMember(m.id);
+                        onChange();
+                      }}
+                    >
+                      ✓ mark verified
+                    </button>
+                  )}
+                </>
+              )}
             </div>
-            <div className="muted small">{m.member_type}</div>
-            {!m.is_verified && (
-              <button
-                className="link"
-                onClick={async () => {
-                  await api.verifyMember(m.id);
-                  onChange();
-                }}
-              >
-                ✓ mark verified
-              </button>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -424,11 +502,53 @@ function defaultsFor(type: string): Record<string, string> {
 
 type Opening = { w: string; h: string; c: string };
 
-function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
-  const [type, setType] = useState("column");
-  const [v, setV] = useState<Record<string, string>>(() => defaultsFor("column"));
-  const [openings, setOpenings] = useState<Opening[]>([]);
+// Reverse-map a stored member's params into form state, for editing.
+function formStateFromMember(p: any): { type: string; vals: Record<string, string>; openings: Opening[] } {
+  const type = p.member_type;
+  const vals: Record<string, string> = { label: p.label ?? "", count: String(p.count ?? 1) };
+  if (RCC.has(type)) vals.concrete_grade = p.concrete_grade ?? "M25";
+  if (REINF.has(type)) vals.cover_mm = String(p.cover_mm ?? (type === "beam" || type === "slab" ? 25 : 40));
+  for (const d of DIMS[type] || []) if (p[d.k] != null) vals[d.k] = String(p[d.k]);
+  if (type === "steel_member") vals.designation = p.designation ?? "";
+  if (type === "column") {
+    if (p.main_bars?.[0]) { vals.mainCount = String(p.main_bars[0].count); vals.mainDia = String(p.main_bars[0].dia_mm); }
+    if (p.ties) { vals.tieDia = String(p.ties.dia_mm); if (p.ties.spacing_mm) vals.tieSpacing = String(p.ties.spacing_mm); }
+  } else if (type === "beam") {
+    if (p.top_bars?.[0]) { vals.topCount = String(p.top_bars[0].count); vals.topDia = String(p.top_bars[0].dia_mm); }
+    if (p.bottom_bars?.[0]) { vals.botCount = String(p.bottom_bars[0].count); vals.botDia = String(p.bottom_bars[0].dia_mm); }
+    if (p.stirrups) { vals.stirDia = String(p.stirrups.dia_mm); if (p.stirrups.spacing_mm) vals.stirSpacing = String(p.stirrups.spacing_mm); }
+  } else if (type === "footing") {
+    if (p.mesh_bottom_x) { vals.mxDia = String(p.mesh_bottom_x.dia_mm); vals.mxSp = String(p.mesh_bottom_x.spacing_mm); }
+    if (p.mesh_bottom_y) { vals.myDia = String(p.mesh_bottom_y.dia_mm); vals.mySp = String(p.mesh_bottom_y.spacing_mm); }
+  } else if (type === "slab") {
+    if (p.main_bars) { vals.mainDia = String(p.main_bars.dia_mm); vals.mainSp = String(p.main_bars.spacing_mm); }
+    if (p.dist_bars) { vals.distDia = String(p.dist_bars.dia_mm); vals.distSp = String(p.dist_bars.spacing_mm); }
+  }
+  if (type === "brick_wall" && Array.isArray(p.embedded_labels) && p.embedded_labels.length)
+    vals.embedded_labels = p.embedded_labels.join(", ");
+  if (type === "earthwork_pit" && Array.isArray(p.contains_labels) && p.contains_labels.length)
+    vals.contains_labels = p.contains_labels.join(", ");
+  const openings: Opening[] = HAS_OPENINGS.has(type) && Array.isArray(p.openings)
+    ? p.openings.map((o: any) => ({ w: String(o.width_mm), h: String(o.height_mm), c: String(o.count ?? 1) }))
+    : [];
+  return { type, vals, openings };
+}
+
+function MemberForm({
+  initialType, initialVals, initialOpenings, submitLabel, onSubmit, onCancel,
+}: {
+  initialType: string;
+  initialVals: Record<string, string>;
+  initialOpenings: Opening[];
+  submitLabel: string;
+  onSubmit: (member: any) => Promise<void>;
+  onCancel?: () => void;
+}) {
+  const [type, setType] = useState(initialType);
+  const [v, setV] = useState<Record<string, string>>(initialVals);
+  const [openings, setOpenings] = useState<Opening[]>(initialOpenings);
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const changeType = (t: string) => {
     setType(t);
@@ -444,55 +564,54 @@ function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
     </label>
   );
 
-  const add = async () => {
-    try {
-      const n = (k: string) => (v[k] !== undefined && v[k] !== "" ? Number(v[k]) : undefined);
-      const m: any = { member_type: type, label: v.label || "", count: n("count") || 1, source: "manual" };
-      if (RCC.has(type)) m.concrete_grade = v.concrete_grade || "M25";
-      if (REINF.has(type)) m.cover_mm = n("cover_mm") ?? 40;
-      for (const d of DIMS[type]) { const val = n(d.k); if (val !== undefined) m[d.k] = val; }
-
-      if (type === "column") {
-        if (n("mainDia") && n("mainCount")) m.main_bars = [{ dia_mm: n("mainDia"), count: n("mainCount") }];
-        if (n("tieDia") && n("tieSpacing")) m.ties = { dia_mm: n("tieDia"), legs: 2, spacing_mm: n("tieSpacing") };
-      } else if (type === "beam") {
-        if (n("topDia") && n("topCount")) m.top_bars = [{ dia_mm: n("topDia"), count: n("topCount") }];
-        if (n("botDia") && n("botCount")) m.bottom_bars = [{ dia_mm: n("botDia"), count: n("botCount") }];
-        if (n("stirDia") && n("stirSpacing")) m.stirrups = { dia_mm: n("stirDia"), legs: 2, spacing_mm: n("stirSpacing") };
-      } else if (type === "footing") {
-        if (n("mxDia") && n("mxSp")) m.mesh_bottom_x = { dia_mm: n("mxDia"), spacing_mm: n("mxSp") };
-        if (n("myDia") && n("mySp")) m.mesh_bottom_y = { dia_mm: n("myDia"), spacing_mm: n("mySp") };
-      } else if (type === "slab") {
-        if (n("mainDia") && n("mainSp")) m.main_bars = { dia_mm: n("mainDia"), spacing_mm: n("mainSp") };
-        if (n("distDia") && n("distSp")) m.dist_bars = { dia_mm: n("distDia"), spacing_mm: n("distSp") };
-      } else if (type === "steel_member") {
-        m.designation = v.designation || "";
-      }
-
-      if (HAS_OPENINGS.has(type)) {
-        const ops = openings
-          .map((o) => ({ width_mm: Number(o.w), height_mm: Number(o.h), count: Number(o.c) || 1 }))
-          .filter((o) => o.width_mm && o.height_mm);
-        if (ops.length) m.openings = ops;
-      }
-      if (type === "brick_wall" && v.embedded_labels) {
-        m.embedded_labels = v.embedded_labels.split(",").map((s) => s.trim()).filter(Boolean);
-      }
-      if (type === "earthwork_pit" && v.contains_labels) {
-        m.contains_labels = v.contains_labels.split(",").map((s) => s.trim()).filter(Boolean);
-      }
-
-      await api.addMember(pid, m);
-      setErr("");
-      onChange();
-    } catch (e: any) {
-      setErr("Could not add: " + (e.message || e));
+  const buildMember = (): any => {
+    const n = (k: string) => (v[k] !== undefined && v[k] !== "" ? Number(v[k]) : undefined);
+    const m: any = { member_type: type, label: v.label || "", count: n("count") || 1 };
+    if (RCC.has(type)) m.concrete_grade = v.concrete_grade || "M25";
+    if (REINF.has(type)) m.cover_mm = n("cover_mm") ?? 40;
+    for (const d of DIMS[type]) { const val = n(d.k); if (val !== undefined) m[d.k] = val; }
+    if (type === "column") {
+      if (n("mainDia") && n("mainCount")) m.main_bars = [{ dia_mm: n("mainDia"), count: n("mainCount") }];
+      if (n("tieDia") && n("tieSpacing")) m.ties = { dia_mm: n("tieDia"), legs: 2, spacing_mm: n("tieSpacing") };
+    } else if (type === "beam") {
+      if (n("topDia") && n("topCount")) m.top_bars = [{ dia_mm: n("topDia"), count: n("topCount") }];
+      if (n("botDia") && n("botCount")) m.bottom_bars = [{ dia_mm: n("botDia"), count: n("botCount") }];
+      if (n("stirDia") && n("stirSpacing")) m.stirrups = { dia_mm: n("stirDia"), legs: 2, spacing_mm: n("stirSpacing") };
+    } else if (type === "footing") {
+      if (n("mxDia") && n("mxSp")) m.mesh_bottom_x = { dia_mm: n("mxDia"), spacing_mm: n("mxSp") };
+      if (n("myDia") && n("mySp")) m.mesh_bottom_y = { dia_mm: n("myDia"), spacing_mm: n("mySp") };
+    } else if (type === "slab") {
+      if (n("mainDia") && n("mainSp")) m.main_bars = { dia_mm: n("mainDia"), spacing_mm: n("mainSp") };
+      if (n("distDia") && n("distSp")) m.dist_bars = { dia_mm: n("distDia"), spacing_mm: n("distSp") };
+    } else if (type === "steel_member") {
+      m.designation = v.designation || "";
     }
+    if (HAS_OPENINGS.has(type)) {
+      const ops = openings
+        .map((o) => ({ width_mm: Number(o.w), height_mm: Number(o.h), count: Number(o.c) || 1 }))
+        .filter((o) => o.width_mm && o.height_mm);
+      if (ops.length) m.openings = ops;
+    }
+    if (type === "brick_wall" && v.embedded_labels)
+      m.embedded_labels = v.embedded_labels.split(",").map((s) => s.trim()).filter(Boolean);
+    if (type === "earthwork_pit" && v.contains_labels)
+      m.contains_labels = v.contains_labels.split(",").map((s) => s.trim()).filter(Boolean);
+    return m;
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await onSubmit(buildMember());
+      setErr("");
+    } catch (e: any) {
+      setErr("Could not save: " + (e.message || e));
+    }
+    setBusy(false);
   };
 
   return (
-    <div className="card">
-      <label className="field">Add element manually</label>
+    <>
       <select className="w" value={type} onChange={(e) => changeType(e.target.value)}>
         {Object.keys(TYPE_LABELS).map((t) => (
           <option key={t} value={t}>{TYPE_LABELS[t]}</option>
@@ -592,7 +711,27 @@ function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
       )}
 
       {err && <div className="errtext small">{err}</div>}
-      <button className="primary" style={{ marginTop: 10 }} onClick={add}>Add element</button>
+      <div className="row" style={{ marginTop: 10, gap: 8 }}>
+        <button className="primary" onClick={submit} disabled={busy}>
+          {busy ? "Saving…" : submitLabel}
+        </button>
+        {onCancel && <button onClick={onCancel} disabled={busy}>Cancel</button>}
+      </div>
+    </>
+  );
+}
+
+function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
+  return (
+    <div className="card">
+      <label className="field">Add element manually</label>
+      <MemberForm
+        initialType="column"
+        initialVals={defaultsFor("column")}
+        initialOpenings={[]}
+        submitLabel="Add element"
+        onSubmit={async (m) => { await api.addMember(pid, m); onChange(); }}
+      />
     </div>
   );
 }

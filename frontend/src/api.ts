@@ -178,6 +178,23 @@ export const api = {
     return ok({ error: "not found" });
   },
 
+  // Edit an existing element in place; re-validates and recomputes the BOQ.
+  updateMember: (mid: number, body: any): Promise<Member> => {
+    for (const pid of Object.keys(store.members)) {
+      const rec = store.members[Number(pid)].find((x) => x.id === mid);
+      if (!rec) continue;
+      const m = validateMember(body); // throws on invalid
+      rec.params = m;
+      rec.member_type = m.member_type;
+      rec.label = m.label;
+      rec.confidence = m.confidence;
+      // source and is_verified are preserved (editing doesn't change provenance).
+      save();
+      return ok(memberDTO(rec));
+    }
+    return Promise.reject(new Error("Member not found"));
+  },
+
   listRates: (pid: number): Promise<RateRow[]> => {
     getProject(pid);
     const r = store.rates[pid] || {};
