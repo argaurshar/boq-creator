@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback, ReactNode } from "react";
 import {
   api,
   getApiKey,
@@ -9,6 +9,7 @@ import {
   RateRow,
   Member,
 } from "./api";
+import { STEEL_SECTIONS } from "./engine/materials";
 
 const INR = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -355,37 +356,234 @@ function LeftPanel({
   );
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  column: "Column", beam: "Beam", footing: "Footing", slab: "Slab",
+  rcc_wall: "RCC wall", pcc: "PCC / lean concrete", brick_wall: "Brick wall",
+  plaster_surface: "Plaster surface", earthwork_pit: "Earthwork pit",
+  steel_member: "Steel member",
+};
+
+type Dim = { k: string; label: string; unit?: string; def: string };
+const DIMS: Record<string, Dim[]> = {
+  column: [{ k: "b_mm", label: "Width (b)", unit: "mm", def: "300" }, { k: "D_mm", label: "Depth (D)", unit: "mm", def: "600" }, { k: "height_mm", label: "Height", unit: "mm", def: "3000" }],
+  beam: [{ k: "b_mm", label: "Width (b)", unit: "mm", def: "230" }, { k: "depth_mm", label: "Depth", unit: "mm", def: "450" }, { k: "clear_span_mm", label: "Clear span", unit: "mm", def: "4500" }],
+  footing: [{ k: "length_mm", label: "Length", unit: "mm", def: "2000" }, { k: "breadth_mm", label: "Breadth", unit: "mm", def: "2000" }, { k: "depth_mm", label: "Depth", unit: "mm", def: "400" }],
+  slab: [{ k: "length_mm", label: "Length", unit: "mm", def: "4500" }, { k: "breadth_mm", label: "Breadth", unit: "mm", def: "4000" }, { k: "thickness_mm", label: "Thickness", unit: "mm", def: "125" }],
+  rcc_wall: [{ k: "length_mm", label: "Length", unit: "mm", def: "3000" }, { k: "height_mm", label: "Height", unit: "mm", def: "3000" }, { k: "thickness_mm", label: "Thickness", unit: "mm", def: "200" }],
+  pcc: [{ k: "length_mm", label: "Length", unit: "mm", def: "2000" }, { k: "breadth_mm", label: "Breadth", unit: "mm", def: "2000" }, { k: "thickness_mm", label: "Thickness", unit: "mm", def: "100" }],
+  brick_wall: [{ k: "length_mm", label: "Length", unit: "mm", def: "4500" }, { k: "height_mm", label: "Height", unit: "mm", def: "3000" }, { k: "thickness_mm", label: "Thickness", unit: "mm", def: "230" }],
+  plaster_surface: [{ k: "length_mm", label: "Length", unit: "mm", def: "4500" }, { k: "height_mm", label: "Height", unit: "mm", def: "3000" }, { k: "thickness_mm", label: "Plaster thk", unit: "mm", def: "12" }, { k: "faces", label: "Faces (1 or 2)", def: "2" }],
+  earthwork_pit: [{ k: "length_mm", label: "Length", unit: "mm", def: "2000" }, { k: "breadth_mm", label: "Breadth", unit: "mm", def: "2000" }, { k: "depth_mm", label: "Depth", unit: "mm", def: "1500" }, { k: "working_offset_mm", label: "Working offset/side", unit: "mm", def: "150" }, { k: "side_slope", label: "Side slope (H:1V)", def: "0" }],
+  steel_member: [{ k: "length_mm", label: "Length", unit: "mm", def: "6000" }],
+};
+
+const GRADES = ["M15", "M20", "M25", "M30", "M35", "M40"];
+const RCC = new Set(["column", "beam", "footing", "slab", "rcc_wall", "pcc"]);
+const REINF = new Set(["column", "beam", "footing", "slab"]);
+const HAS_OPENINGS = new Set(["brick_wall", "plaster_surface"]);
+const LABEL_PREFIX: Record<string, string> = {
+  column: "C1", beam: "B1", footing: "F1", slab: "S1", rcc_wall: "W1",
+  pcc: "PCC1", brick_wall: "BW1", plaster_surface: "P1",
+  earthwork_pit: "E1", steel_member: "ST1",
+};
+// sensible reinforcement prefills so common entry is one click
+const REIN_DEFAULTS: Record<string, Record<string, string>> = {
+  column: { mainCount: "8", mainDia: "16", tieDia: "8", tieSpacing: "150" },
+  beam: { topCount: "2", topDia: "16", botCount: "3", botDia: "16", stirDia: "8", stirSpacing: "150" },
+  footing: { mxDia: "12", mxSp: "150", myDia: "12", mySp: "150" },
+  slab: { mainDia: "10", mainSp: "150", distDia: "8", distSp: "200" },
+};
+
+function defaultsFor(type: string): Record<string, string> {
+  const v: Record<string, string> = { label: LABEL_PREFIX[type] || "", count: "1" };
+  if (RCC.has(type)) v.concrete_grade = "M25";
+  if (REINF.has(type)) v.cover_mm = type === "beam" || type === "slab" ? "25" : "40";
+  for (const d of DIMS[type]) v[d.k] = d.def;
+  if (type === "steel_member") v.designation = "ISMB300";
+  Object.assign(v, REIN_DEFAULTS[type] || {});
+  return v;
+}
+
+type Opening = { w: string; h: string; c: string };
+
 function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
   const [type, setType] = useState("column");
-  const [json, setJson] = useState(
-    '{"label":"C1","b_mm":300,"D_mm":600,"height_mm":3000,"count":1}'
-  );
+  const [v, setV] = useState<Record<string, string>>(() => defaultsFor("column"));
+  const [openings, setOpenings] = useState<Opening[]>([]);
   const [err, setErr] = useState("");
+
+  const changeType = (t: string) => {
+    setType(t);
+    setV(defaultsFor(t));
+    setOpenings([]);
+    setErr("");
+  };
+  const set = (k: string, val: string) => setV((p) => ({ ...p, [k]: val }));
+  const numIn = (k: string, label: string, unit?: string) => (
+    <label className="ff">
+      <span>{label}{unit ? ` (${unit})` : ""}</span>
+      <input type="number" value={v[k] ?? ""} onChange={(e) => set(k, e.target.value)} />
+    </label>
+  );
+
   const add = async () => {
     try {
-      const body = { member_type: type, ...JSON.parse(json) };
-      await api.addMember(pid, body);
+      const n = (k: string) => (v[k] !== undefined && v[k] !== "" ? Number(v[k]) : undefined);
+      const m: any = { member_type: type, label: v.label || "", count: n("count") || 1, source: "manual" };
+      if (RCC.has(type)) m.concrete_grade = v.concrete_grade || "M25";
+      if (REINF.has(type)) m.cover_mm = n("cover_mm") ?? 40;
+      for (const d of DIMS[type]) { const val = n(d.k); if (val !== undefined) m[d.k] = val; }
+
+      if (type === "column") {
+        if (n("mainDia") && n("mainCount")) m.main_bars = [{ dia_mm: n("mainDia"), count: n("mainCount") }];
+        if (n("tieDia") && n("tieSpacing")) m.ties = { dia_mm: n("tieDia"), legs: 2, spacing_mm: n("tieSpacing") };
+      } else if (type === "beam") {
+        if (n("topDia") && n("topCount")) m.top_bars = [{ dia_mm: n("topDia"), count: n("topCount") }];
+        if (n("botDia") && n("botCount")) m.bottom_bars = [{ dia_mm: n("botDia"), count: n("botCount") }];
+        if (n("stirDia") && n("stirSpacing")) m.stirrups = { dia_mm: n("stirDia"), legs: 2, spacing_mm: n("stirSpacing") };
+      } else if (type === "footing") {
+        if (n("mxDia") && n("mxSp")) m.mesh_bottom_x = { dia_mm: n("mxDia"), spacing_mm: n("mxSp") };
+        if (n("myDia") && n("mySp")) m.mesh_bottom_y = { dia_mm: n("myDia"), spacing_mm: n("mySp") };
+      } else if (type === "slab") {
+        if (n("mainDia") && n("mainSp")) m.main_bars = { dia_mm: n("mainDia"), spacing_mm: n("mainSp") };
+        if (n("distDia") && n("distSp")) m.dist_bars = { dia_mm: n("distDia"), spacing_mm: n("distSp") };
+      } else if (type === "steel_member") {
+        m.designation = v.designation || "";
+      }
+
+      if (HAS_OPENINGS.has(type)) {
+        const ops = openings
+          .map((o) => ({ width_mm: Number(o.w), height_mm: Number(o.h), count: Number(o.c) || 1 }))
+          .filter((o) => o.width_mm && o.height_mm);
+        if (ops.length) m.openings = ops;
+      }
+      if (type === "brick_wall" && v.embedded_labels) {
+        m.embedded_labels = v.embedded_labels.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+      if (type === "earthwork_pit" && v.contains_labels) {
+        m.contains_labels = v.contains_labels.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+
+      await api.addMember(pid, m);
       setErr("");
       onChange();
     } catch (e: any) {
-      setErr("Invalid: " + e.message);
+      setErr("Could not add: " + (e.message || e));
     }
   };
+
   return (
     <div className="card">
       <label className="field">Add element manually</label>
-      <select className="w" value={type} onChange={(e) => setType(e.target.value)}>
-        {["column", "beam", "footing", "slab", "rcc_wall", "pcc", "brick_wall",
-          "plaster_surface", "earthwork_pit", "steel_member"].map((t) => (
-          <option key={t}>{t}</option>
+      <select className="w" value={type} onChange={(e) => changeType(e.target.value)}>
+        {Object.keys(TYPE_LABELS).map((t) => (
+          <option key={t} value={t}>{TYPE_LABELS[t]}</option>
         ))}
       </select>
-      <label className="field">Params (JSON, mm)</label>
-      <textarea rows={3} value={json} onChange={(e) => setJson(e.target.value)} />
+
+      <div className="ffgrid" style={{ marginTop: 8 }}>
+        <label className="ff">
+          <span>Label / mark</span>
+          <input value={v.label ?? ""} onChange={(e) => set("label", e.target.value)} />
+        </label>
+        {numIn("count", "Count (nos)")}
+        {DIMS[type].map((d) => (
+          <Fragment key={d.k}>{numIn(d.k, d.label, d.unit)}</Fragment>
+        ))}
+        {RCC.has(type) && (
+          <label className="ff">
+            <span>Concrete grade</span>
+            <select value={v.concrete_grade ?? "M25"} onChange={(e) => set("concrete_grade", e.target.value)}>
+              {GRADES.map((g) => <option key={g}>{g}</option>)}
+            </select>
+          </label>
+        )}
+        {REINF.has(type) && numIn("cover_mm", "Cover", "mm")}
+        {type === "steel_member" && (
+          <label className="ff">
+            <span>Section</span>
+            <select value={v.designation ?? ""} onChange={(e) => set("designation", e.target.value)}>
+              {Object.keys(STEEL_SECTIONS).map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {type === "column" && (
+        <Section title="Reinforcement (optional)">
+          <div className="ffgrid">
+            {numIn("mainCount", "Main bars", "nos")}{numIn("mainDia", "Main dia", "mm")}
+            {numIn("tieDia", "Tie dia", "mm")}{numIn("tieSpacing", "Tie spacing", "mm")}
+          </div>
+        </Section>
+      )}
+      {type === "beam" && (
+        <Section title="Reinforcement (optional)">
+          <div className="ffgrid">
+            {numIn("topCount", "Top bars", "nos")}{numIn("topDia", "Top dia", "mm")}
+            {numIn("botCount", "Bottom bars", "nos")}{numIn("botDia", "Bottom dia", "mm")}
+            {numIn("stirDia", "Stirrup dia", "mm")}{numIn("stirSpacing", "Stirrup spacing", "mm")}
+          </div>
+        </Section>
+      )}
+      {type === "footing" && (
+        <Section title="Bottom mesh (optional)">
+          <div className="ffgrid">
+            {numIn("mxDia", "X dia", "mm")}{numIn("mxSp", "X spacing", "mm")}
+            {numIn("myDia", "Y dia", "mm")}{numIn("mySp", "Y spacing", "mm")}
+          </div>
+        </Section>
+      )}
+      {type === "slab" && (
+        <Section title="Reinforcement (optional)">
+          <div className="ffgrid">
+            {numIn("mainDia", "Main dia", "mm")}{numIn("mainSp", "Main spacing", "mm")}
+            {numIn("distDia", "Dist dia", "mm")}{numIn("distSp", "Dist spacing", "mm")}
+          </div>
+        </Section>
+      )}
+
+      {HAS_OPENINGS.has(type) && (
+        <Section title="Openings (doors / windows)">
+          {openings.map((o, i) => (
+            <div className="ffgrid" key={i} style={{ alignItems: "end" }}>
+              <label className="ff"><span>Width (mm)</span>
+                <input type="number" value={o.w} onChange={(e) => setOpenings((p) => p.map((x, j) => j === i ? { ...x, w: e.target.value } : x))} /></label>
+              <label className="ff"><span>Height (mm)</span>
+                <input type="number" value={o.h} onChange={(e) => setOpenings((p) => p.map((x, j) => j === i ? { ...x, h: e.target.value } : x))} /></label>
+              <label className="ff"><span>Count</span>
+                <input type="number" value={o.c} onChange={(e) => setOpenings((p) => p.map((x, j) => j === i ? { ...x, c: e.target.value } : x))} /></label>
+              <button className="link" onClick={() => setOpenings((p) => p.filter((_, j) => j !== i))}>remove</button>
+            </div>
+          ))}
+          <button className="link" onClick={() => setOpenings((p) => [...p, { w: "1000", h: "2100", c: "1" }])}>+ add opening</button>
+        </Section>
+      )}
+
+      {type === "brick_wall" && (
+        <label className="ff" style={{ marginTop: 6 }}>
+          <span>Embedded RCC labels (e.g. C1, comma-separated) — netted automatically</span>
+          <input value={v.embedded_labels ?? ""} onChange={(e) => set("embedded_labels", e.target.value)} />
+        </label>
+      )}
+      {type === "earthwork_pit" && (
+        <label className="ff" style={{ marginTop: 6 }}>
+          <span>Contains labels (footings/PCC inside pit, comma-separated) — backfill netted</span>
+          <input value={v.contains_labels ?? ""} onChange={(e) => set("contains_labels", e.target.value)} />
+        </label>
+      )}
+
       {err && <div className="errtext small">{err}</div>}
-      <button className="primary" style={{ marginTop: 8 }} onClick={add}>
-        Add
-      </button>
+      <button className="primary" style={{ marginTop: 10 }} onClick={add}>Add element</button>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="subsec">
+      <div className="subsec-title">{title}</div>
+      {children}
     </div>
   );
 }

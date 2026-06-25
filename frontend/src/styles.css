@@ -51,6 +51,16 @@ button.keybtn.set { border-style: solid; border-color: var(--accent2);
 label.field { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
 .field input, .field textarea, textarea, input.w { width: 100%; }
 
+/* Manual-entry form */
+.ffgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+label.ff { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); }
+label.ff span { margin-bottom: 2px; }
+label.ff input, label.ff select { width: 100%; box-sizing: border-box; padding: 5px 6px;
+  font-size: 13px; }
+.subsec { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.subsec-title { font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--muted); margin-bottom: 6px; }
+
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
