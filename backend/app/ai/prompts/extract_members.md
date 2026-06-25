@@ -69,6 +69,19 @@ millimetres, exactly as read. Every member carries: label, count, confidence
             // 'count' = number of identical trusses; segment 'count' = how many
             // of that segment in a single truss. Prefer ONE truss over many
             // loose steel_members.
+- anchor_bolt:{member_type, label, count, dia_mm, length_mm}
+            // holding-down / foundation bolts. length_mm = embedment + projection.
+- roof_sheeting:{member_type, label, count, length_mm, breadth_mm, lap_pct, opening_area_m2}
+            // GI/AC/PPGI roof or wall cladding, covered area in m2.
+
+FOUNDATIONS — capture all three layers separately, never merge them: the RCC
+footing pad as a `footing` (its own concrete + bottom mesh), the lean concrete
+below it as a separate `pcc`, and the excavation as an `earthwork_pit`. Do NOT
+record a footing pad as a `slab`.
+
+PURLINS — capture each purlin run as a `steel_member` (designation + length +
+count). Capture holding-down bolts as `anchor_bolt`, roof/wall cladding as
+`roof_sheeting`.
 
 Rules:
 - If a needed dimension is missing or illegible, set it to null and add an entry

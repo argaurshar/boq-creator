@@ -1,7 +1,7 @@
 // Structural / MS steel. Ported from steel.py. Unit: kg.
 import * as mat from "./materials";
 import { Member, TrussSegment } from "./members";
-import { Quantity, mmToM, qty, step } from "./units";
+import { Quantity, mmToM, qty, step, fmt0 } from "./units";
 
 export function steel_member(m: Member): Quantity[] {
   const L = mmToM(m.length_mm);
@@ -88,5 +88,27 @@ export function truss(m: Member): Quantity[] {
         segments: breakdown },
       total, "IS 808 / SP 6(1)")],
     extra: { truss_segments: breakdown, per_truss_kg: perTruss },
+  })];
+}
+
+// Anchor / holding-down bolts. Weight as a round bar (d^2/162 kg/m) over the
+// full bolt length, +10% for the nut, washer and threaded portion. Reported in
+// kg with the bolt count carried through as `nos`.
+const BOLT_NUT_WASHER_FACTOR = 1.10;
+export function anchor_bolt(m: Member): Quantity[] {
+  const L = mmToM(m.length_mm);
+  const n = m.count;
+  const wPerM = (m.dia_mm * m.dia_mm) / mat.REBAR_WEIGHT_DIVISOR;
+  const each = wPerM * L * BOLT_NUT_WASHER_FACTOR;
+  const total = each * n;
+  return [qty({
+    category: "steel",
+    description: `Anchor bolt ${m.label} (${fmt0(m.dia_mm)}mm dia x ${fmt0(m.length_mm)}mm)`.trim(),
+    unit: "kg", value: total, nos: n, length_m: L,
+    audit: [step("steel.anchor_bolt.weight",
+      "(dia^2/162) * L * 1.10(nut+washer+thread) * count",
+      { dia_mm: m.dia_mm, L_m: L, factor: BOLT_NUT_WASHER_FACTOR, count: n },
+      total, "IS 800")],
+    extra: { each_kg: each },
   })];
 }

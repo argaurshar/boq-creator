@@ -37,12 +37,23 @@ def brick_wall(m) -> list[Quantity]:
         )]
 
     gross = L * H * t
-    net = max(gross - deduct_area * t - m.embedded_rcc_m3, 0.0) * n
+    deductions = deduct_area * t + m.embedded_rcc_m3
+    clamped = deductions >= gross and gross > 0
+    net = max(gross - deductions, 0.0) * n
     bricks = net * mat.BRICKS_PER_M3
+    extra = {"bricks_est": round(bricks)}
+    desc = f"Brickwork {m.label} ({m.thickness_mm:.0f} mm thick)".strip()
+    if clamped:
+        desc += " — review: openings/embedded RCC ≥ wall volume"
+        extra["warning"] = (
+            f"Net masonry clamped to 0: deductions {round(deductions, 3)} m³ "
+            f"≥ gross wall {round(gross, 3)} m³ (per unit). "
+            "Check openings / embedded_labels."
+        )
     return [
         Quantity(
             category="masonry",
-            description=f"Brickwork {m.label} ({m.thickness_mm:.0f} mm thick)".strip(),
+            description=desc,
             unit="m3", value=net, nos=n, length_m=L, breadth_m=t, depth_m=H,
             audit=[FormulaStep(
                 "masonry.brickwork.volume",
@@ -50,6 +61,6 @@ def brick_wall(m) -> list[Quantity]:
                 {"L_m": L, "H_m": H, "t_m": t,
                  "deduct_openings_m3": deduct_area * t,
                  "embedded_rcc_m3": m.embedded_rcc_m3, "count": n}, net, CLAUSE)],
-            extra={"bricks_est": round(bricks)},
+            extra=extra,
         )
     ]

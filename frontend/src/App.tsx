@@ -458,6 +458,7 @@ const TYPE_LABELS: Record<string, string> = {
   rcc_wall: "RCC wall", pcc: "PCC / lean concrete", brick_wall: "Brick wall",
   plaster_surface: "Plaster surface", earthwork_pit: "Earthwork pit",
   steel_member: "Steel member", truss: "Steel truss",
+  anchor_bolt: "Anchor bolt", roof_sheeting: "Roof sheeting",
 };
 
 type Dim = { k: string; label: string; unit?: string; def: string };
@@ -473,6 +474,8 @@ const DIMS: Record<string, Dim[]> = {
   earthwork_pit: [{ k: "length_mm", label: "Length", unit: "mm", def: "2000" }, { k: "breadth_mm", label: "Breadth", unit: "mm", def: "2000" }, { k: "depth_mm", label: "Depth", unit: "mm", def: "1500" }, { k: "working_offset_mm", label: "Working offset/side", unit: "mm", def: "150" }, { k: "side_slope", label: "Side slope (H:1V)", def: "0" }],
   steel_member: [{ k: "length_mm", label: "Length", unit: "mm", def: "6000" }],
   truss: [{ k: "span_mm", label: "Span (informational)", unit: "mm", def: "12000" }],
+  anchor_bolt: [{ k: "dia_mm", label: "Bolt dia", unit: "mm", def: "25" }, { k: "length_mm", label: "Bolt length (incl. embedment)", unit: "mm", def: "600" }],
+  roof_sheeting: [{ k: "length_mm", label: "Length", unit: "mm", def: "6000" }, { k: "breadth_mm", label: "Breadth", unit: "mm", def: "3000" }, { k: "lap_pct", label: "Lap allowance", unit: "%", def: "10" }],
 };
 
 const GRADES = ["M15", "M20", "M25", "M30", "M35", "M40"];
@@ -483,6 +486,7 @@ const LABEL_PREFIX: Record<string, string> = {
   column: "C1", beam: "B1", footing: "F1", slab: "S1", rcc_wall: "W1",
   pcc: "PCC1", brick_wall: "BW1", plaster_surface: "P1",
   earthwork_pit: "E1", steel_member: "ST1", truss: "T1",
+  anchor_bolt: "AB1", roof_sheeting: "RS1",
 };
 // sensible reinforcement prefills so common entry is one click
 const REIN_DEFAULTS: Record<string, Record<string, string>> = {

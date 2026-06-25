@@ -5,6 +5,7 @@ import * as masonry from "./masonry";
 import * as plaster from "./plaster";
 import * as rebar from "./rebar";
 import * as steel from "./steel";
+import * as roofing from "./roofing";
 import { Member } from "./members";
 import { Quantity } from "./units";
 
@@ -22,6 +23,8 @@ const REGISTRY: Record<string, Fn[]> = {
   earthwork_pit: [earthwork.earthwork_pit],
   steel_member: [steel.steel_member],
   truss: [steel.truss],
+  anchor_bolt: [steel.anchor_bolt],
+  roof_sheeting: [roofing.roof_sheeting],
 };
 
 export function computeMember(member: Member): Quantity[] {
@@ -52,4 +55,5 @@ export const CATEGORY_ORDER: [string, string][] = [
   ["steel", "Structural Steel"],
   ["masonry", "Brickwork / Masonry"],
   ["plaster", "Plaster & Finishes"],
+  ["roofing", "Roofing & Sheeting"],
 ];

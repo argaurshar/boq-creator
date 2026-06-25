@@ -110,8 +110,18 @@ def resolve_steel(designation: str) -> dict:
 
     if has(r"PLATE|PLT|GUSSET") and len(n) >= 3:
         L, W, t = n[0], n[1], n[2]
+        # Plan size sometimes given in inches/feet (e.g. a 12"x12" base plate)
+        # while the thickness is in mm. A plate whose plan size is smaller than
+        # its own thickness is physically impossible, so treat the plan dims as
+        # inches; an explicit inch/foot mark forces the same conversion.
+        inch_mark = bool(_re.search(r'\d\s*(?:"|\bIN\b|INCH)', D))
+        foot_mark = bool(_re.search(r"\d\s*(?:'|\bFT\b|FEET|FOOT)", D))
+        if foot_mark and max(L, W) < 50:
+            L, W = L * 304.8, W * 304.8
+        elif max(L, W) < t or (inch_mark and max(L, W) < 50):
+            L, W = L * 25.4, W * 25.4
         return {"unit_wt_kg_m": None, "piece_wt_kg": (L * W * t / 1e9) * STEEL_DENSITY,
-                "basis": f"plate {L:g}x{W:g}x{t:g} mm"}
+                "basis": f"plate {round(L):g}x{round(W):g}x{t:g} mm"}
     if has(r"\bSHS\b|\bRHS\b|\bHSS\b|TUBE|HOLLOW"):
         h = b = t = 0.0
         if len(n) >= 3:

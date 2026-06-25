@@ -186,10 +186,25 @@ class Truss(_MemberBase):
     segments: list[TrussSegment] = Field(min_length=1)
 
 
+class AnchorBolt(_MemberBase):
+    member_type: Literal["anchor_bolt"] = "anchor_bolt"
+    dia_mm: float = Field(gt=0)
+    length_mm: float = Field(gt=0)            # incl. embedment + projection
+
+
+class RoofSheeting(_MemberBase):
+    member_type: Literal["roof_sheeting"] = "roof_sheeting"
+    length_mm: float
+    breadth_mm: float
+    lap_pct: float = 0.0                       # side/end lap allowance
+    opening_area_m2: float = 0.0
+
+
 Member = Annotated[
     Union[
         Column, Beam, Footing, Slab, RccWall, Pcc,
         BrickWall, PlasterSurface, EarthworkPit, SteelMember, Truss,
+        AnchorBolt, RoofSheeting,
     ],
     Field(discriminator="member_type"),
 ]
