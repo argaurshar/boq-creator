@@ -1,5 +1,14 @@
 import { Fragment, useEffect, useState, useCallback } from "react";
-import { api, Boq, BoqItem, Project, RateRow, Member } from "./api";
+import {
+  api,
+  getApiKey,
+  setApiKey,
+  Boq,
+  BoqItem,
+  Project,
+  RateRow,
+  Member,
+} from "./api";
 
 const INR = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -11,8 +20,23 @@ export default function App() {
   const [members, setMembers] = useState<Member[]>([]);
   const [rates, setRates] = useState<RateRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState<boolean>(() => !!getApiKey());
 
   const project = projects.find((p) => p.id === pid) || null;
+
+  const editKey = () => {
+    const next = prompt(
+      "Paste your Anthropic API key to enable live AI drawing extraction and " +
+        "plain-English editing.\n\nThe key is stored only in this browser and " +
+        "sent directly to your backend per request — never saved server-side. " +
+        "Leave blank to remove it (the app then uses the key-free demo mode).",
+      getApiKey()
+    );
+    if (next === null) return; // cancelled
+    const key = next.trim();
+    setApiKey(key);
+    setHasKey(!!key);
+  };
 
   const refresh = useCallback(async (id: number) => {
     try {
@@ -58,6 +82,17 @@ export default function App() {
         <h1>🏗️ BOQ Creator</h1>
         <span className="tag">AI-assisted, engineer-verified · IS-code</span>
         <div className="spacer" />
+        <button
+          className={hasKey ? "keybtn set" : "keybtn"}
+          onClick={editKey}
+          title={
+            hasKey
+              ? "An Anthropic API key is set in this browser. Click to change or remove it."
+              : "No AI key set — drawing extraction & chat use the key-free demo mode. Click to add your Anthropic key."
+          }
+        >
+          {hasKey ? "🔑 AI key: on" : "🔑 Set AI key"}
+        </button>
         <select
           value={pid ?? ""}
           onChange={(e) =>
@@ -150,6 +185,11 @@ function LeftPanel({
             onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
           />
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
+          <div style={{ marginTop: 8 }} className="muted small">
+            Auto-extraction from drawings needs an Anthropic API key — set it via
+            <strong> 🔑 Set AI key</strong> (top right). Without a key you can
+            still add elements manually or by chat.
+          </div>
           <div style={{ marginTop: 10 }} className="muted small">
             No drawing handy?
           </div>

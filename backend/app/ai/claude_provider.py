@@ -25,9 +25,11 @@ def _load(name: str) -> str:
 class ClaudeProvider(AIProvider):
     name = "claude"
 
-    def __init__(self) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         import anthropic  # imported lazily so the app runs without the package
-        self._client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        # A per-request key (from the frontend) takes precedence over the env.
+        self._client = anthropic.Anthropic(
+            api_key=api_key or settings.ANTHROPIC_API_KEY)
 
     # ------------------------------------------------------------------ #
     def extract_members(self, *, page_no, page_text, page_image_b64, scale, context):
@@ -60,19 +62,34 @@ class ClaudeProvider(AIProvider):
         return self._json_call(_load("nl_edit.md"), content)
 
     # ------------------------------------------------------------------ #
+    # Extended thinking + high effort improve extraction, but only newer SDK
+    # versions accept these kwargs. We try them and transparently fall back to
+    # a plain call so the provider works across anthropic SDK versions.
+    _extra: dict[str, Any] = {"thinking": {"type": "adaptive"},
+                              "output_config": {"effort": "high"}}
+
+    def _create(self, system: str, content: list[dict[str, Any]]):
+        base = dict(
+            model=_MODEL,
+            max_tokens=8000,
+            system=system,
+            messages=[{"role": "user", "content": content}],
+        )
+        try:
+            return self._client.messages.create(**base, **self._extra)
+        except TypeError:
+            # SDK doesn't support thinking/output_config — drop and retry plainly
+            # (and remember, so we don't pay the failed call again).
+            self._extra = {}
+            return self._client.messages.create(**base)
+
     def _json_call(self, system: str, content: list[dict[str, Any]]) -> dict[str, Any]:
         last_err = None
         for attempt in range(2):
-            msg = self._client.messages.create(
-                model=_MODEL,
-                max_tokens=8000,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "high"},
-                system=system if attempt == 0 else
-                       system + "\n\nYour previous reply was not valid JSON. "
-                                "Return ONLY the JSON object.",
-                messages=[{"role": "user", "content": content}],
-            )
+            sys = system if attempt == 0 else (
+                system + "\n\nYour previous reply was not valid JSON. "
+                         "Return ONLY the JSON object.")
+            msg = self._create(sys, content)
             text = next((b.text for b in msg.content if b.type == "text"), "")
             try:
                 return json.loads(self._strip_fences(text))

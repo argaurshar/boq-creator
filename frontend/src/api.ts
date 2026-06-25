@@ -62,6 +62,34 @@ async function j<T>(res: Response): Promise<T> {
   return res.json();
 }
 
+// --- Bring-your-own Anthropic key ------------------------------------------
+// The key is kept only in this browser (localStorage) and attached to the AI
+// endpoints (extract, nl-edit) as a per-request header. It is never persisted
+// server-side. With no key set, those endpoints fall back to the mock provider.
+const KEY_STORAGE = "boq.anthropicApiKey";
+
+export function getApiKey(): string {
+  try {
+    return localStorage.getItem(KEY_STORAGE) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setApiKey(key: string): void {
+  try {
+    if (key) localStorage.setItem(KEY_STORAGE, key);
+    else localStorage.removeItem(KEY_STORAGE);
+  } catch {
+    /* ignore storage failures (private mode, etc.) */
+  }
+}
+
+function aiHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const k = getApiKey();
+  return k ? { ...extra, "X-Anthropic-Api-Key": k } : extra;
+}
+
 export const api = {
   listProjects: () => fetch("/api/projects").then((r) => j<Project[]>(r)),
   createProject: (body: Partial<Project>) =>
@@ -97,7 +125,7 @@ export const api = {
   nlEdit: (pid: number, text: string) =>
     fetch(`/api/projects/${pid}/nl-edit`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: aiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ text }),
     }).then((r) => j<{ provider: string; result: any; preview: any }>(r)),
   nlApply: (pid: number, member: any) =>
@@ -115,9 +143,10 @@ export const api = {
     );
   },
   extractPage: (did: number, n: number) =>
-    fetch(`/api/drawings/${did}/pages/${n}/extract`, { method: "POST" }).then((r) =>
-      j<any>(r)
-    ),
+    fetch(`/api/drawings/${did}/pages/${n}/extract`, {
+      method: "POST",
+      headers: aiHeaders(),
+    }).then((r) => j<any>(r)),
 
   seedDemo: (pid: number) =>
     fetch(`/api/projects/${pid}/seed`, { method: "POST" }).then((r) =>
