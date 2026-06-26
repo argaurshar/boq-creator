@@ -538,6 +538,7 @@ function formStateFromMember(p: any): { type: string; vals: Record<string, strin
   if (type === "column") {
     if (p.main_bars?.[0]) { vals.mainCount = String(p.main_bars[0].count); vals.mainDia = String(p.main_bars[0].dia_mm); }
     if (p.ties) { vals.tieDia = String(p.ties.dia_mm); if (p.ties.spacing_mm) vals.tieSpacing = String(p.ties.spacing_mm); }
+    if (p.ties_inner) { vals.tieInDia = String(p.ties_inner.dia_mm); if (p.ties_inner.spacing_mm) vals.tieInSp = String(p.ties_inner.spacing_mm); }
   } else if (type === "beam") {
     if (p.top_bars?.[0]) { vals.topCount = String(p.top_bars[0].count); vals.topDia = String(p.top_bars[0].dia_mm); }
     if (p.bottom_bars?.[0]) { vals.botCount = String(p.bottom_bars[0].count); vals.botDia = String(p.bottom_bars[0].dia_mm); }
@@ -545,6 +546,8 @@ function formStateFromMember(p: any): { type: string; vals: Record<string, strin
   } else if (type === "footing") {
     if (p.mesh_bottom_x) { vals.mxDia = String(p.mesh_bottom_x.dia_mm); vals.mxSp = String(p.mesh_bottom_x.spacing_mm); }
     if (p.mesh_bottom_y) { vals.myDia = String(p.mesh_bottom_y.dia_mm); vals.mySp = String(p.mesh_bottom_y.spacing_mm); }
+    if (p.mesh_top_x) { vals.txDia = String(p.mesh_top_x.dia_mm); vals.txSp = String(p.mesh_top_x.spacing_mm); }
+    if (p.mesh_top_y) { vals.tyDia = String(p.mesh_top_y.dia_mm); vals.tySp = String(p.mesh_top_y.spacing_mm); }
   } else if (type === "slab") {
     if (p.main_bars) { vals.mainDia = String(p.main_bars.dia_mm); vals.mainSp = String(p.main_bars.spacing_mm); }
     if (p.dist_bars) { vals.distDia = String(p.dist_bars.dia_mm); vals.distSp = String(p.dist_bars.spacing_mm); }
@@ -607,6 +610,7 @@ function MemberForm({
     if (type === "column") {
       if (n("mainDia") && n("mainCount")) m.main_bars = [{ dia_mm: n("mainDia"), count: n("mainCount") }];
       if (n("tieDia") && n("tieSpacing")) m.ties = { dia_mm: n("tieDia"), legs: 2, spacing_mm: n("tieSpacing") };
+      if (n("tieInDia") && n("tieInSp")) m.ties_inner = { dia_mm: n("tieInDia"), legs: 2, spacing_mm: n("tieInSp") };
     } else if (type === "beam") {
       if (n("topDia") && n("topCount")) m.top_bars = [{ dia_mm: n("topDia"), count: n("topCount") }];
       if (n("botDia") && n("botCount")) m.bottom_bars = [{ dia_mm: n("botDia"), count: n("botCount") }];
@@ -614,6 +618,8 @@ function MemberForm({
     } else if (type === "footing") {
       if (n("mxDia") && n("mxSp")) m.mesh_bottom_x = { dia_mm: n("mxDia"), spacing_mm: n("mxSp") };
       if (n("myDia") && n("mySp")) m.mesh_bottom_y = { dia_mm: n("myDia"), spacing_mm: n("mySp") };
+      if (n("txDia") && n("txSp")) m.mesh_top_x = { dia_mm: n("txDia"), spacing_mm: n("txSp") };
+      if (n("tyDia") && n("tySp")) m.mesh_top_y = { dia_mm: n("tyDia"), spacing_mm: n("tySp") };
     } else if (type === "slab") {
       if (n("mainDia") && n("mainSp")) m.main_bars = { dia_mm: n("mainDia"), spacing_mm: n("mainSp") };
       if (n("distDia") && n("distSp")) m.dist_bars = { dia_mm: n("distDia"), spacing_mm: n("distSp") };
@@ -694,7 +700,8 @@ function MemberForm({
         <Section title="Reinforcement (optional)">
           <div className="ffgrid">
             {numIn("mainCount", "Main bars", "nos")}{numIn("mainDia", "Main dia", "mm")}
-            {numIn("tieDia", "Tie dia", "mm")}{numIn("tieSpacing", "Tie spacing", "mm")}
+            {numIn("tieDia", "Tie dia (outer)", "mm")}{numIn("tieSpacing", "Tie spacing", "mm")}
+            {numIn("tieInDia", "Inner tie dia", "mm")}{numIn("tieInSp", "Inner tie spacing", "mm")}
           </div>
         </Section>
       )}
@@ -708,10 +715,12 @@ function MemberForm({
         </Section>
       )}
       {type === "footing" && (
-        <Section title="Bottom mesh (optional)">
+        <Section title="Mesh — bottom & top (optional)">
           <div className="ffgrid">
-            {numIn("mxDia", "X dia", "mm")}{numIn("mxSp", "X spacing", "mm")}
-            {numIn("myDia", "Y dia", "mm")}{numIn("mySp", "Y spacing", "mm")}
+            {numIn("mxDia", "Bot X dia", "mm")}{numIn("mxSp", "Bot X spacing", "mm")}
+            {numIn("myDia", "Bot Y dia", "mm")}{numIn("mySp", "Bot Y spacing", "mm")}
+            {numIn("txDia", "Top X dia", "mm")}{numIn("txSp", "Top X spacing", "mm")}
+            {numIn("tyDia", "Top Y dia", "mm")}{numIn("tySp", "Top Y spacing", "mm")}
           </div>
         </Section>
       )}
@@ -945,6 +954,18 @@ function CenterPanel({
                   Rates are ₹0 — set a rate per category below (or load indicative
                   rates) to see the cost. Currency: {currency}.
                 </div>
+              )}
+              {boq.errors && boq.errors.length > 0 && (
+                <details className="bs-warnings">
+                  <summary>
+                    ⚠ {boq.errors.length} note(s) — review (e.g. duplicate steel removed, unresolved items)
+                  </summary>
+                  <ul>
+                    {boq.errors.map((e: any, i: number) => (
+                      <li key={i}>{e.label ? `${e.label}: ` : ""}{e.error}</li>
+                    ))}
+                  </ul>
+                </details>
               )}
               <div className="bs-chips">
                 {boq.groups.map((g) => {

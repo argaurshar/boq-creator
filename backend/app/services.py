@@ -7,6 +7,7 @@ so there is nothing to keep in sync. See project.md section 5.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -69,8 +70,33 @@ def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
             vol_by_label[member.label] = (
                 vol_by_label.get(member.label, 0.0) + concrete_volume(member))
 
-    # Pass 2: compute quantities, applying netting links.
+    # Dedup: when a truss assembly is present, drop loose steel_member lines that
+    # re-list its parts (the AI sometimes emits a truss AND its chords/webs/struts
+    # as separate members). Match on truss-part wording; never touch base plates,
+    # anchor bolts, stiffeners or column-connection pieces. Removed lines are
+    # reported as warnings, not silently dropped. Mirrors the TS engine.
+    has_truss = any(mem.member_type == "truss" for _, mem in validated)
+    dup_re = re.compile(
+        r"top chord|bottom chord|\bchord\b|bottom tie|\btie\b|rafter|\bweb\b|"
+        r"\bstrut\b|purlin|transverse|longitudinal|bracing|diagonal|vertical",
+        re.IGNORECASE,
+    )
+    kept: list[tuple[Any, Member]] = []
     for row, member in validated:
+        if has_truss and member.member_type == "steel_member":
+            hay = f"{member.label or ''} {member.evidence or ''} {getattr(member, 'designation', '') or ''}"
+            if dup_re.search(hay):
+                cat_groups.setdefault("_errors", []).append({
+                    "member_id": row.id, "label": member.label, "warning": True,
+                    "error": ("Removed probable duplicate steel (already counted in "
+                              f"the truss): {(getattr(member, 'designation', '') or '').strip()} "
+                              f"{(member.label or '').strip()}").strip(),
+                })
+                continue
+        kept.append((row, member))
+
+    # Pass 2: compute quantities, applying netting links.
+    for row, member in kept:
         effective = _apply_netting(member, vol_by_label)
         for q in compute_member(effective):
             rate = float(rates.get(q.category, 0.0))

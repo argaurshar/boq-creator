@@ -136,6 +136,7 @@ export function validateMember(raw: any): Member {
         height_mm: num(raw, "height_mm", { required: true })!,
         main_bars: barGroups(raw.main_bars),
         ties: stirrups(raw.ties),
+        ties_inner: stirrups(raw.ties_inner),
       };
     case "beam":
       return {
@@ -155,6 +156,8 @@ export function validateMember(raw: any): Member {
         depth_mm: num(raw, "depth_mm", { required: true })!,
         mesh_bottom_x: barMesh(raw.mesh_bottom_x),
         mesh_bottom_y: barMesh(raw.mesh_bottom_y),
+        mesh_top_x: barMesh(raw.mesh_top_x),
+        mesh_top_y: barMesh(raw.mesh_top_y),
       };
     case "slab":
       return {
