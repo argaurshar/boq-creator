@@ -233,6 +233,14 @@ a.btnlink:hover { filter: brightness(1.1); }
 .bs-warnings ul { margin: 6px 0 0; padding-left: 18px; }
 .bs-warnings li { margin: 2px 0; }
 
+/* ===================== AI re-check ===================== */
+.review-card { border-color: #5b6ef0; }
+.review-item { border-top: 1px solid var(--line); padding: 8px 0 4px; }
+.review-item:first-of-type { border-top: none; }
+.badge.sev-high { background: #3a1212; color: #fca5a5; border: 1px solid #5b1d1d; }
+.badge.sev-med { background: #3b2f0b; color: var(--warn); border: 1px solid #5a4a1a; }
+.badge.sev-low { background: #102a3a; color: #56c7f5; border: 1px solid #1d4a63; }
+
 /* ===================== Material summary ===================== */
 .matsum { margin-top: 16px; background: linear-gradient(180deg, #16203612, transparent), var(--panel);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
