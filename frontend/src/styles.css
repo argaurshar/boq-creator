@@ -233,6 +233,20 @@ a.btnlink:hover { filter: brightness(1.1); }
 .bs-warnings ul { margin: 6px 0 0; padding-left: 18px; }
 .bs-warnings li { margin: 2px 0; }
 
+/* ===================== Material summary ===================== */
+.matsum { margin-top: 16px; background: linear-gradient(180deg, #16203612, transparent), var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+.matsum > summary { cursor: pointer; font-weight: 700; font-size: 13px;
+  text-transform: uppercase; letter-spacing: .5px; }
+.matsum-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px; margin-top: 12px; }
+.matsec-title { font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--accent); margin-bottom: 4px; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+.mattable { width: 100%; }
+.mattable td { border-bottom: 1px dashed var(--line); padding: 4px 6px; font-size: 12px; }
+.mattable td.num { font-weight: 600; }
+.mattable td.unit { color: var(--muted); width: 38px; }
+
 /* ===================== Mobile / small screens ===================== */
 @media (max-width: 900px) {
   /* Topbar wraps to multiple rows; drop the tagline, keep controls tappable */

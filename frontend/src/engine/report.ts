@@ -2,6 +2,7 @@
 // and opens it in a new tab, then triggers the browser print dialog (Save as
 // PDF). No dependencies — works on the static GitHub Pages build.
 import { Boq } from "./boq";
+import { materialTakeoff } from "./takeoff";
 
 interface ProjectLike {
   name?: string; client?: string; location?: string; currency?: string;
@@ -83,6 +84,18 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   const section = (title: string, head: string, body: string) =>
     body ? `<h2>${title}</h2><table><thead>${head}</thead><tbody>${body}</tbody></table>` : "";
 
+  // Material take-off as side-by-side mini tables.
+  const matSections = materialTakeoff(boq);
+  const matHtml = matSections.length
+    ? `<h2>Material Summary <span style="font-weight:400;font-size:11px;color:#5b6b80">(indicative — verify mixes)</span></h2>
+       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">` +
+      matSections.map((s) =>
+        `<div><div style="font-size:11px;text-transform:uppercase;color:#2f6df0;border-bottom:1px solid #cdd7e3;padding-bottom:3px;margin-bottom:4px">${esc(s.title)}</div>` +
+        `<table>${s.rows.map((r) =>
+            `<tr><td>${esc(r.material)}</td><td class="r">${esc(num(r.qty, 2))}</td><td style="color:#5b6b80">${esc(r.unit)}</td></tr>`).join("")}</table></div>`).join("") +
+      `</div>`
+    : "";
+
   const html = `<!doctype html><html><head><meta charset="utf-8">
 <title>BOQ — ${esc(project.name || "Project")}</title>
 <style>
@@ -143,6 +156,8 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   ${section("Steel Truss Details",
     "<tr><th>Truss</th><th>Component</th><th>Section</th><th class='r'>Len (m)</th><th class='r'>No./truss</th><th class='r'>Wt (kg)</th></tr>",
     truss)}
+
+  ${matHtml}
 
   <h2>Assumptions &amp; Basis</h2>
   <div style="font-size:12px;color:var(--mut)">

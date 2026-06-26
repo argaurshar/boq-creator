@@ -18,6 +18,7 @@ export function column(m: Member): Quantity[] {
       unit: "m3", value: vol, nos: n, length_m: b, breadth_m: D, depth_m: H,
       audit: [step("concrete.column.volume", "b*D*H*count",
         { b_m: b, D_m: D, H_m: H, count: n }, vol, CLAUSE)],
+      extra: { grade: grade(m) },
     }),
     qty({
       category: "formwork", description: `Formwork to column ${m.label}`.trim(),
@@ -40,6 +41,7 @@ export function beam(m: Member): Quantity[] {
       unit: "m3", value: vol, nos: n, length_m: L, breadth_m: b, depth_m: d,
       audit: [step("concrete.beam.volume", "b*d*L*count",
         { b_m: b, d_m: d, L_m: L, count: n }, vol, CLAUSE)],
+      extra: { grade: grade(m) },
     }),
     qty({
       category: "formwork", description: `Formwork to beam ${m.label}`.trim(),
@@ -61,6 +63,7 @@ export function footing(m: Member): Quantity[] {
       unit: "m3", value: vol, nos: n, length_m: L, breadth_m: B, depth_m: D,
       audit: [step("concrete.footing.volume", "L*B*D*count",
         { L_m: L, B_m: B, D_m: D, count: n }, vol, CLAUSE)],
+      extra: { grade: grade(m) },
     }),
   ];
 }
@@ -79,6 +82,7 @@ export function slab(m: Member): Quantity[] {
       unit: "m3", value: vol, nos: n, length_m: L, breadth_m: B, depth_m: t,
       audit: [step("concrete.slab.volume", "(L*B - openings)*t*count",
         { L_m: L, B_m: B, openings_m2: m.opening_area_m2 ?? 0, t_m: t, count: n }, vol, CLAUSE)],
+      extra: { grade: grade(m) },
     }),
     qty({
       category: "formwork", description: `Formwork (soffit) to slab ${m.label}`.trim(),
@@ -101,6 +105,7 @@ export function rcc_wall(m: Member): Quantity[] {
       unit: "m3", value: vol, nos: n, length_m: L, breadth_m: t, depth_m: H,
       audit: [step("concrete.wall.volume", "L*t*H*count",
         { L_m: L, t_m: t, H_m: H, count: n }, vol, CLAUSE)],
+      extra: { grade: grade(m) },
     }),
     qty({
       category: "formwork", description: `Formwork to wall ${m.label}`.trim(),
@@ -121,6 +126,7 @@ export function pcc(m: Member): Quantity[] {
       unit: "m3", value: vol, nos: n, length_m: L, breadth_m: B, depth_m: t,
       audit: [step("concrete.pcc.volume", "L*B*t*count",
         { L_m: L, B_m: B, t_m: t, count: n }, vol, CLAUSE)],
+      extra: { grade: grade(m) },
     }),
   ];
 }

@@ -214,6 +214,46 @@ def test_anchor_bolt_weight():
     assert approx(q.value, 61.11, tol=0.05)
 
 
+def test_concrete_material_conversion_m20_m25():
+    from app.engine.material_takeoff import concrete_materials
+    # M20 1:1.5:3 (sum 5.5), dry 1.54: cement 0.28 m3 -> 8.06 bags; sand 0.42; agg 0.84
+    m20 = concrete_materials("M20", 1.0)
+    assert approx(m20["cement_bags"], 8.06, tol=0.02)
+    assert approx(m20["sand_m3"], 0.42, tol=0.02)
+    assert approx(m20["agg_m3"], 0.84, tol=0.02)
+    # M25 1:1:2 (sum 4): cement 0.385 m3 -> 11.1 bags
+    assert approx(concrete_materials("M25", 1.0)["cement_bags"], 11.1, tol=0.1)
+    # PCC ratio parsed from grade string "PCC 1:4:8" (sum 13): cement 0.1185 -> 3.41 bags
+    assert approx(concrete_materials("PCC 1:4:8", 1.0)["cement_bags"], 3.41, tol=0.05)
+
+
+def test_material_takeoff_aggregates_from_boq():
+    from types import SimpleNamespace
+    from app.services import build_boq
+    from app.engine.material_takeoff import material_takeoff
+
+    def row(i, params):
+        return SimpleNamespace(id=i, params=params, source="manual", confidence=1.0,
+                               is_verified=True, label=params.get("label", ""))
+    members = [
+        row(1, {"member_type": "footing", "label": "F1", "concrete_grade": "M25",
+                "length_mm": 2000, "breadth_mm": 2000, "depth_mm": 500,
+                "mesh_bottom_x": {"dia_mm": 12, "spacing_mm": 150},
+                "mesh_bottom_y": {"dia_mm": 12, "spacing_mm": 150}}),
+        row(2, {"member_type": "brick_wall", "label": "W1", "length_mm": 3000,
+                "height_mm": 3000, "thickness_mm": 230}),
+    ]
+    sections = material_takeoff(build_boq(members, {}))
+    titles = [s["title"] for s in sections]
+    assert "Cement & aggregates" in titles
+    assert any("Reinforcement steel" in t for t in titles)
+    cement = next(r for s in sections if s["title"] == "Cement & aggregates"
+                  for r in s["rows"] if r["material"].startswith("Cement"))
+    assert cement["qty"] > 0
+    # bricks surfaced from masonry
+    assert any(r["material"].startswith("Bricks") for s in sections for r in s["rows"])
+
+
 def test_truss_steel_dedup_removes_duplicate_members_and_warns():
     from types import SimpleNamespace
     from app.services import build_boq
