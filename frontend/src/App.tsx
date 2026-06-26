@@ -382,8 +382,21 @@ function LeftPanel({
 
         <ManualAdd pid={pid} onChange={onChange} />
 
-        <div className="muted" style={{ margin: "4px 0 8px" }}>
-          {members.length} element(s)
+        <div className="row" style={{ margin: "4px 0 8px" }}>
+          <span className="muted">{members.length} element(s)</span>
+          <div className="spacer" />
+          {members.some((m) => !m.is_verified) && (
+            <button
+              className="link"
+              title="Mark every AI/chat-extracted element as verified (clears the 'review' tags)"
+              onClick={async () => {
+                for (const m of members) if (!m.is_verified) await api.verifyMember(m.id);
+                onChange();
+              }}
+            >
+              ✓ verify all
+            </button>
+          )}
         </div>
         {members.map((m) => {
           const isEditing = editing === m.id;
