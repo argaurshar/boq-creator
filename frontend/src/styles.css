@@ -1,37 +1,66 @@
 :root {
-  --bg: #0f1620;
-  --panel: #16202c;
-  --panel2: #1d2a38;
-  --line: #2b3a4d;
-  --text: #e6edf3;
-  --muted: #8aa0b6;
-  --accent: #3b82f6;
-  --accent2: #14b8a6;
-  --warn: #f59e0b;
-  --good: #22c55e;
+  --bg: #0a0e1a;
+  --panel: #121a2c;
+  --panel2: #1a2440;
+  --line: #28324d;
+  --line2: #34406018;
+  --text: #eaf1fb;
+  --muted: #94a6c4;
+  --accent: #7c8cff;        /* indigo */
+  --accent-2: #5b6ef0;
+  --accent2: #2dd4bf;       /* teal */
+  --warn: #fbbf24;
+  --good: #34d399;
+  --danger: #fb7185;
+  --shadow: 0 6px 22px rgba(0,0,0,.35);
+  --radius: 10px;
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  font-family: "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
+  background:
+    radial-gradient(1100px 540px at 88% -12%, #1c2747 0%, rgba(28,39,71,0) 60%),
+    radial-gradient(900px 500px at -5% 0%, #13203f 0%, rgba(19,32,63,0) 55%),
+    var(--bg);
+  background-attachment: fixed;
 }
 .app { display: flex; flex-direction: column; height: 100vh; }
 .topbar {
   display: flex; align-items: center; gap: 16px;
-  padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 11px 18px;
+  background: linear-gradient(90deg, #16203a, #111829);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 #ffffff0a, 0 6px 18px rgba(0,0,0,.28);
 }
-.topbar h1 { font-size: 18px; margin: 0; }
+.topbar h1 {
+  font-size: 18px; margin: 0; font-weight: 800; letter-spacing: .2px;
+  background: linear-gradient(90deg, #c9d4ff, #7c8cff 55%, #2dd4bf);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 .topbar .tag { color: var(--muted); font-size: 12px; }
 .topbar select, .topbar button, input, textarea {
   background: var(--panel2); color: var(--text);
-  border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px;
 }
-button { cursor: pointer; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.accent { background: var(--accent2); border-color: var(--accent2); color: #04221f; font-weight: 600; }
-button:hover { filter: brightness(1.1); }
+input:focus, textarea:focus, select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px #7c8cff33;
+}
+button { cursor: pointer; transition: filter .12s, transform .06s, box-shadow .12s; }
+button.primary {
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  border-color: var(--accent-2); color: #fff; font-weight: 600;
+  box-shadow: 0 2px 10px #5b6ef055;
+}
+button.accent {
+  background: linear-gradient(180deg, #2dd4bf, #14b8a6);
+  border-color: #14b8a6; color: #04221f; font-weight: 700;
+  box-shadow: 0 2px 10px #14b8a655;
+}
+button:hover { filter: brightness(1.08); }
+button.primary:active, button.accent:active { transform: translateY(1px); }
 button.keybtn { border-style: dashed; color: var(--muted); }
 button.keybtn.set { border-style: solid; border-color: var(--accent2);
   color: var(--accent2); font-weight: 600; }
@@ -42,12 +71,16 @@ button.keybtn.set { border-style: solid; border-color: var(--accent2);
 .col.left { width: 300px; }
 .col.center { flex: 1; }
 .col.right { width: 340px; border-right: none; }
-.col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px;
-  color: var(--muted); padding: 12px 14px 6px; margin: 0; }
+.col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--text); font-weight: 700; padding: 13px 14px 8px; margin: 0;
+  display: flex; align-items: center; gap: 8px; }
+.col h2::before { content: ""; width: 4px; height: 13px; border-radius: 3px;
+  background: linear-gradient(180deg, var(--accent), var(--accent2)); }
 .scroll { overflow: auto; padding: 0 14px 16px; }
 
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 12px; margin-bottom: 12px; }
+.card { background: linear-gradient(180deg, #16203612, transparent), var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px; margin-bottom: 12px; box-shadow: var(--shadow); }
 label.field { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
 .field input, .field textarea, textarea, input.w { width: 100%; }
 
@@ -63,17 +96,19 @@ label.ff input, label.ff select { width: 100%; box-sizing: border-box; padding: 
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+th { color: var(--muted); font-weight: 600; position: sticky; top: 0;
+  background: #0e1626; text-transform: uppercase; letter-spacing: .4px; font-size: 11px; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.section td { background: var(--panel2); font-weight: 700; }
 tr.subtotal td { font-weight: 700; color: var(--accent2); }
 
-.badge { font-size: 10px; padding: 1px 6px; border-radius: 10px; margin-left: 6px; }
-.badge.ai { background: #3b2f0b; color: var(--warn); }
-.badge.nl { background: #102a3a; color: #38bdf8; }
-.badge.manual { background: #0d2a17; color: var(--good); }
-.badge.unverified { background: #3a1212; color: #f87171; }
-.badge.verified { background: #0d2a17; color: var(--good); }
+.badge { font-size: 10px; padding: 1px 7px; border-radius: 999px; margin-left: 6px;
+  border: 1px solid transparent; font-weight: 600; letter-spacing: .2px; }
+.badge.ai { background: #3b2f0b; color: var(--warn); border-color: #5a4a1a; }
+.badge.nl { background: #102a3a; color: #56c7f5; border-color: #1d4a63; }
+.badge.manual { background: #0d2a17; color: var(--good); border-color: #1b5234; }
+.badge.unverified { background: #3a1212; color: #fca5a5; border-color: #5b1d1d; }
+.badge.verified { background: #0d2a17; color: var(--good); border-color: #1b5234; }
 
 .chat-msg { margin-bottom: 10px; }
 .chat-msg.user { text-align: right; }
