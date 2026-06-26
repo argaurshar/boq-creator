@@ -367,6 +367,7 @@ function LeftPanel({
   const [busy, setBusy] = useState("");
   const [staged, setStaged] = useState<File[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
+  const [reviews, setReviews] = useState<any[]>([]);
   const running = !!busy && busy.endsWith("…");
 
   const runExtraction = async () => {
@@ -374,6 +375,7 @@ function LeftPanel({
     if (!list.length) return;
     try {
       let total = 0, rejected = 0, unresolved = 0;
+      const allReviews: any[] = [];
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
         setBusy(`(${i + 1}/${list.length}) ${f.name} — rendering…`);
@@ -381,11 +383,16 @@ function LeftPanel({
         total += res.saved;
         rejected += res.rejected.length;
         unresolved += res.unresolved.length;
+        allReviews.push(...(res.reviews || []));
         onChange();
       }
+      const sev: Record<string, number> = { high: 0, med: 1, low: 2 };
+      allReviews.sort((a, b) => (sev[a.severity] ?? 1) - (sev[b.severity] ?? 1));
+      setReviews(allReviews);
       const notes: string[] = [];
       if (rejected) notes.push(`${rejected} need fixing`);
       if (unresolved) notes.push(`${unresolved} unresolved`);
+      if (allReviews.length) notes.push(`${allReviews.length} AI suggestion(s)`);
       setBusy(
         `Done. Extracted ${total} element(s) from ${list.length} file(s)` +
           (notes.length ? ` (${notes.join(", ")} — review & edit below).` : ".")
@@ -395,6 +402,19 @@ function LeftPanel({
       setBusy("Error: " + (e.message || e));
     }
   };
+
+  const applyReview = async (r: any, i: number) => {
+    try {
+      if (r.op === "modify" && r.member_id != null && r.member) await api.updateMember(r.member_id, r.member);
+      else if (r.op === "add" && r.member) await api.addMember(pid, { ...r.member, source: "ai" });
+      else if (r.op === "remove" && r.member_id != null) await api.deleteMember(r.member_id);
+      setReviews((rs) => rs.filter((_, j) => j !== i));
+      onChange();
+    } catch (e: any) {
+      setBusy("Could not apply suggestion: " + (e.message || e));
+    }
+  };
+  const dismissReview = (i: number) => setReviews((rs) => rs.filter((_, j) => j !== i));
 
   return (
     <div className="col left">
@@ -474,6 +494,38 @@ function LeftPanel({
             Load demo data
           </button>
         </div>
+
+        {reviews.length > 0 && (
+          <div className="card review-card">
+            <div className="row">
+              <strong>🔍 AI re-check — {reviews.length} suggestion(s)</strong>
+              <div className="spacer" />
+              <button className="link" onClick={() => setReviews([])}>dismiss all</button>
+            </div>
+            <div className="muted small" style={{ marginBottom: 6 }}>
+              The AI compared the drawing to what it extracted. Apply a fix or dismiss it.
+            </div>
+            {reviews.map((r, i) => (
+              <div className="review-item" key={i}>
+                <div className="row" style={{ gap: 6 }}>
+                  <span className={`badge sev-${r.severity}`}>{r.severity}</span>
+                  <strong className="small">{r.op}{r.target_label ? ` · ${r.target_label}` : ""}</strong>
+                </div>
+                <div className="small" style={{ margin: "3px 0 6px" }}>{r.issue}</div>
+                <div className="row" style={{ gap: 8 }}>
+                  {((r.op === "modify" && r.member_id != null && r.member) ||
+                    (r.op === "add" && r.member) ||
+                    (r.op === "remove" && r.member_id != null)) && (
+                    <button className="link" onClick={() => applyReview(r, i)}>
+                      {r.op === "remove" ? "Apply (delete)" : r.op === "add" ? "Apply (add)" : "Apply fix"}
+                    </button>
+                  )}
+                  <button className="link" onClick={() => dismissReview(i)}>dismiss</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <ManualAdd pid={pid} onChange={onChange} />
 

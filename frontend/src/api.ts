@@ -10,7 +10,7 @@ import { roundQty } from "./engine/units";
 import { CATEGORY_ORDER } from "./engine/compute";
 import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
-import { claudeParseNl, claudeExtract, DEFAULT_MODEL } from "./engine/claude";
+import { claudeParseNl, claudeExtract, claudeReview, DEFAULT_MODEL } from "./engine/claude";
 import { downloadBoqXlsx } from "./engine/export";
 
 export type { Boq, BoqItem, BoqGroup };
@@ -260,8 +260,9 @@ export const api = {
   extractDrawing: async (
     pid: number,
     file: File,
-    onProgress?: (msg: string) => void
-  ): Promise<{ saved: number; rejected: any[]; unresolved: any[]; pages: number }> => {
+    onProgress?: (msg: string) => void,
+    review = true
+  ): Promise<{ saved: number; rejected: any[]; unresolved: any[]; pages: number; reviews: any[] }> => {
     const p = getProject(pid);
     const key = getApiKey();
     if (!key) {
@@ -273,29 +274,53 @@ export const api = {
     let saved = 0;
     const rejected: any[] = [];
     const unresolved: any[] = [];
+    const reviews: any[] = [];
+    const ctx = { concrete_grade: "M25", cover_mm: 40, currency: p.currency };
     for (const pg of pages) {
       onProgress?.(`Reading ${file.name} — page ${pg.page_no}/${pages.length} with AI…`);
       const result = await claudeExtract({
-        page_no: pg.page_no,
-        page_text: pg.text,
-        page_image_b64: pg.image_b64,
-        scale: "unknown",
-        context: { concrete_grade: "M25", cover_mm: 40, currency: p.currency },
-        apiKey: key,
-        model: getModel(),
-        onProgress,
+        page_no: pg.page_no, page_text: pg.text, page_image_b64: pg.image_b64,
+        scale: "unknown", context: ctx, apiKey: key, model: getModel(), onProgress,
       });
+      // Save members, remembering id↔label↔type so review suggestions can target them.
+      const savedThisPage: { id: number; label: string; member_type: string }[] = [];
       for (const raw of result.members || []) {
         try {
-          addMemberInternal(pid, { ...raw, source: "ai" });
+          const m = addMemberInternal(pid, { ...raw, source: "ai" });
           saved++;
+          savedThisPage.push({ id: m.id, label: m.label, member_type: m.member_type });
         } catch (e: any) {
           rejected.push({ error: String(e.message || e), raw });
         }
       }
       for (const u of result.unresolved || []) unresolved.push(u);
+
+      // AI re-check: critique this page's take-off against the drawing image.
+      if (review && (result.members || []).length) {
+        onProgress?.(`Re-checking ${file.name} — page ${pg.page_no}/${pages.length}…`);
+        const sugg = await claudeReview({
+          page_no: pg.page_no, page_image_b64: pg.image_b64,
+          members: result.members || [], context: ctx, apiKey: key, model: getModel(),
+        });
+        for (const r of sugg) {
+          const lbl = String(r.target_label || "").trim().toLowerCase();
+          const hit = savedThisPage.find(
+            (s) => s.label.trim().toLowerCase() === lbl &&
+              (!r.target_type || s.member_type === r.target_type)
+          );
+          reviews.push({
+            op: r.op,
+            member_id: hit ? hit.id : null,
+            target_label: r.target_label || "",
+            target_type: r.target_type || "",
+            severity: ["high", "med", "low"].includes(r.severity) ? r.severity : "med",
+            issue: String(r.issue || ""),
+            member: r.member || null,
+          });
+        }
+      }
     }
-    return { saved, rejected, unresolved, pages: pages.length };
+    return { saved, rejected, unresolved, pages: pages.length, reviews };
   },
 
   seedDemo: (pid: number) => {

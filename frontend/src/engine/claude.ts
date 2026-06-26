@@ -1,7 +1,7 @@
 // Direct browser -> Anthropic calls using the user's own key (entered in the
 // UI, kept in localStorage). The key never leaves the browser except to go to
 // Anthropic. Mirrors backend/app/ai/claude_provider.py.
-import { EXTRACT_PROMPT, NL_EDIT_PROMPT } from "./prompts";
+import { EXTRACT_PROMPT, NL_EDIT_PROMPT, REVIEW_PROMPT } from "./prompts";
 
 export const DEFAULT_MODEL = "claude-sonnet-4-6";
 const API_URL = "https://api.anthropic.com/v1/messages";
@@ -147,4 +147,33 @@ export async function claudeExtract(args: {
     members: dedupeMembers([first.members || [], second.members || []]),
     unresolved: [...(first.unresolved || []), ...(second.unresolved || [])],
   };
+}
+
+// AI self-review: re-examine the page image against the elements already
+// extracted from it and return suggested corrections (a senior-QS critique).
+// Best-effort — returns [] on any failure so it never breaks extraction.
+export async function claudeReview(args: {
+  page_no: number; page_image_b64: string | null; members: any[];
+  context: Record<string, any>; apiKey: string; model?: string;
+}): Promise<any[]> {
+  if (!args.page_image_b64 || !(args.members || []).length) return [];
+  const model = args.model || DEFAULT_MODEL;
+  const content: Content = [
+    { type: "image", source: { type: "base64", media_type: "image/png", data: args.page_image_b64 } },
+    {
+      type: "text",
+      text:
+        `Page number: ${args.page_no}\n` +
+        `Project defaults: ${JSON.stringify(args.context)}\n\n` +
+        `ELEMENTS ALREADY EXTRACTED from this page (audit these against the image):\n` +
+        JSON.stringify(args.members, null, 1),
+    },
+  ];
+  try {
+    const res = await jsonCall(REVIEW_PROMPT, content, args.apiKey, model, 12000);
+    const reviews = Array.isArray(res?.reviews) ? res.reviews : [];
+    return reviews.filter((r: any) => r && r.op && r.op !== "ok");
+  } catch {
+    return [];
+  }
 }
