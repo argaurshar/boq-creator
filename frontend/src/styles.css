@@ -26,7 +26,8 @@ body {
     var(--bg);
   background-attachment: fixed;
 }
-.app { display: flex; flex-direction: column; height: 100vh; }
+.app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.mobile-tabs { display: none; }
 .topbar {
   display: flex; align-items: center; gap: 16px;
   padding: 11px 18px;
@@ -231,3 +232,49 @@ a.btnlink:hover { filter: brightness(1.1); }
 .bs-warnings summary { cursor: pointer; font-weight: 600; }
 .bs-warnings ul { margin: 6px 0 0; padding-left: 18px; }
 .bs-warnings li { margin: 2px 0; }
+
+/* ===================== Mobile / small screens ===================== */
+@media (max-width: 900px) {
+  /* Topbar wraps to multiple rows; drop the tagline, keep controls tappable */
+  .topbar { flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; }
+  .topbar .tag { display: none; }
+  .topbar .spacer { display: none; }
+  .topbar h1 { font-size: 16px; width: 100%; }
+  .topbar select, .topbar button { padding: 9px 11px; }
+
+  /* Tab switcher between the three panes */
+  .mobile-tabs { display: flex; gap: 6px; padding: 8px 10px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5; }
+  .mobile-tabs button { flex: 1; min-height: 40px; font-size: 13px; font-weight: 600;
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+  .mobile-tabs button.on {
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    border-color: var(--accent-2); color: #fff; }
+
+  /* One full-width pane at a time */
+  .body { flex-direction: column; }
+  .col { width: 100% !important; border-right: none; }
+  .col.left, .col.center, .col.right { display: none; }
+  .body.tab-left .col.left,
+  .body.tab-center .col.center,
+  .body.tab-right .col.right { display: flex; }
+
+  /* Wide tables scroll horizontally rather than crushing */
+  .scroll { padding: 0 10px 16px; -webkit-overflow-scrolling: touch; }
+  .boq-table { min-width: 560px; }
+  th, td { padding: 6px 6px; }
+
+  /* Summary card a touch more compact */
+  .boq-summary { padding: 13px 13px; }
+  .bs-total { font-size: 28px; }
+  .bs-actions { margin-left: 0; width: 100%; }
+
+  /* Modals fit the viewport */
+  .modal { width: 92vw !important; padding: 16px; }
+  .ffgrid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 420px) {
+  .ffgrid { grid-template-columns: 1fr; }
+}

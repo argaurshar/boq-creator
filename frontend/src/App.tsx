@@ -31,6 +31,7 @@ export default function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"left" | "center" | "right">("center");
 
   const project = projects.find((p) => p.id === pid) || null;
 
@@ -168,26 +169,33 @@ export default function App() {
           </button>
         </div>
       ) : (
-        <div className="body">
-          <LeftPanel
-            pid={pid}
-            members={members}
-            onChange={() => refresh(pid)}
-          />
-          <CenterPanel
-            pid={pid}
-            boq={boq}
-            rates={rates}
-            currency={project?.currency || "INR"}
-            onChange={() => refresh(pid)}
-          />
-          <RightPanel
-            pid={pid}
-            project={project}
-            rates={rates}
-            onChange={() => refresh(pid)}
-          />
-        </div>
+        <>
+          <div className="mobile-tabs">
+            <button className={mobileTab === "left" ? "on" : ""} onClick={() => setMobileTab("left")}>📐 Elements</button>
+            <button className={mobileTab === "center" ? "on" : ""} onClick={() => setMobileTab("center")}>📋 BOQ</button>
+            <button className={mobileTab === "right" ? "on" : ""} onClick={() => setMobileTab("right")}>💬 Chat &amp; Rates</button>
+          </div>
+          <div className={"body tab-" + mobileTab}>
+            <LeftPanel
+              pid={pid}
+              members={members}
+              onChange={() => refresh(pid)}
+            />
+            <CenterPanel
+              pid={pid}
+              boq={boq}
+              rates={rates}
+              currency={project?.currency || "INR"}
+              onChange={() => refresh(pid)}
+            />
+            <RightPanel
+              pid={pid}
+              project={project}
+              rates={rates}
+              onChange={() => refresh(pid)}
+            />
+          </div>
+        </>
       )}
 
       {showNewProject && (
