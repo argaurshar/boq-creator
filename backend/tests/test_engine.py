@@ -214,6 +214,63 @@ def test_anchor_bolt_weight():
     assert approx(q.value, 61.11, tol=0.05)
 
 
+def test_truss_steel_dedup_removes_duplicate_members_and_warns():
+    from types import SimpleNamespace
+    from app.services import build_boq
+
+    def row(i, params):
+        return SimpleNamespace(id=i, params=params, source="ai", confidence=1.0,
+                               is_verified=False, label=params.get("label", ""))
+
+    members = [
+        row(1, {"member_type": "truss", "label": "T1", "count": 1,
+                "segments": [{"component": "top chord", "designation": "RHS 100X200X4",
+                              "length_mm": 6000, "count": 2}]}),
+        row(2, {"member_type": "steel_member", "label": "Top chord longitudinal",
+                "designation": "RHS 100X200X4", "length_mm": 6000}),
+        row(3, {"member_type": "steel_member", "label": "Diagonal web bracing",
+                "designation": "SHS 60X60X4.8", "length_mm": 1450}),
+        row(4, {"member_type": "steel_member", "label": "BP1 Base Plate",
+                "designation": "MS PLATE 305X305X20", "length_mm": 305}),
+    ]
+    boq = build_boq(members, {"steel": 90})
+    steel = next(g for g in boq["groups"] if g["category"] == "steel")
+    descs = " ".join(it["description"] for it in steel["items"])
+    assert "truss" in descs.lower() and "Base Plate" in descs   # kept
+    assert "longitudinal" not in descs.lower() and "web" not in descs.lower()  # dropped
+    warnings = [e for e in boq["errors"] if e.get("warning")]
+    assert len(warnings) == 2
+
+
+def test_footing_top_mesh_adds_rebar():
+    bottom_only = Footing(label="F1", length_mm=1829, breadth_mm=1829, depth_mm=508,
+                          mesh_bottom_x=BarMesh(dia_mm=12, spacing_mm=102),
+                          mesh_bottom_y=BarMesh(dia_mm=12, spacing_mm=102))
+    doubly = Footing(label="F1", length_mm=1829, breadth_mm=1829, depth_mm=508,
+                     mesh_bottom_x=BarMesh(dia_mm=12, spacing_mm=102),
+                     mesh_bottom_y=BarMesh(dia_mm=12, spacing_mm=102),
+                     mesh_top_x=BarMesh(dia_mm=10, spacing_mm=203),
+                     mesh_top_y=BarMesh(dia_mm=10, spacing_mm=203))
+    b = _by_cat(compute_member(bottom_only), "rebar")[0].value
+    d = _by_cat(compute_member(doubly), "rebar")[0].value
+    assert d > b  # top mat increases footing steel
+    # 4 BBS rows when doubly reinforced (BX, BY, TX, TY)
+    assert len(_by_cat(compute_member(doubly), "rebar")[0].extra["bbs"]) == 4
+
+
+def test_column_inner_tie_adds_rebar():
+    single = Column(label="C1", b_mm=457, D_mm=457, height_mm=2438, cover_mm=40,
+                    main_bars=[BarGroup(dia_mm=20, count=12)],
+                    ties=Stirrups(dia_mm=10, legs=2, spacing_mm=102))
+    double = Column(label="C1", b_mm=457, D_mm=457, height_mm=2438, cover_mm=40,
+                    main_bars=[BarGroup(dia_mm=20, count=12)],
+                    ties=Stirrups(dia_mm=10, legs=2, spacing_mm=102),
+                    ties_inner=Stirrups(dia_mm=8, legs=2, spacing_mm=102))
+    s = _by_cat(compute_member(single), "rebar")[0].value
+    d = _by_cat(compute_member(double), "rebar")[0].value
+    assert d > s  # inner ring increases tie steel
+
+
 def test_roof_sheeting_area_with_lap():
     # 6.0 x 3.0 = 18 m2 per sheet x 2 x 1.10 lap = 39.6 m2
     m = RoofSheeting(label="RS1", count=2, length_mm=6000, breadth_mm=3000, lap_pct=10)

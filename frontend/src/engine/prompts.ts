@@ -82,12 +82,16 @@ millimetres, exactly as read. Every member carries: label, count, confidence
 (0..1), evidence (what you used), and optional assumptions (list of strings).
 
 - column:  {member_type, label, count, b_mm, D_mm, height_mm, concrete_grade,
-            cover_mm, main_bars:[{dia_mm,count}], ties:{dia_mm,legs,spacing_mm}}
+            cover_mm, main_bars:[{dia_mm,count}], ties:{dia_mm,legs,spacing_mm},
+            ties_inner:{dia_mm,legs,spacing_mm}}  // ties_inner = the 2nd/inner ring
+            // when the schedule shows an OUTER + INNER ring ("2 SETS").
 - beam:    {member_type, label, count, b_mm, depth_mm, clear_span_mm, concrete_grade,
             cover_mm, top_bars:[{dia_mm,count}], bottom_bars:[{dia_mm,count}],
             stirrups:{dia_mm,legs,spacing_mm}}
 - footing: {member_type, label, count, length_mm, breadth_mm, depth_mm,
-            concrete_grade, mesh_bottom_x:{dia_mm,spacing_mm}, mesh_bottom_y:{dia_mm,spacing_mm}}
+            concrete_grade, mesh_bottom_x:{dia_mm,spacing_mm}, mesh_bottom_y:{dia_mm,spacing_mm},
+            mesh_top_x:{dia_mm,spacing_mm}, mesh_top_y:{dia_mm,spacing_mm}}
+            // include mesh_top_* when the footing is doubly reinforced (top + bottom mat).
 - slab:    {member_type, label, count, length_mm, breadth_mm, thickness_mm,
             concrete_grade, main_bars:{dia_mm,spacing_mm}, dist_bars:{dia_mm,spacing_mm},
             bent_up_bars:{dia_mm,spacing_mm}}
@@ -120,6 +124,26 @@ FOUNDATIONS — capture all three layers separately, never merge them:
 PURLINS — capture each purlin run as a 'steel_member' (designation + length +
 count). Capture holding-down bolts as 'anchor_bolt', and roof/wall cladding as
 'roof_sheeting'.
+
+AVOID DOUBLE-COUNTING STEEL — if you capture a 'truss', do NOT also output its
+top/bottom chords, ties, struts or web members as separate 'steel_member' lines;
+they are already inside the truss. Only output steel_members for things NOT in the
+truss (base plates, stiffeners, holding-down bolts, column-cap connections, purlins).
+
+COLUMN HEIGHT — read the COMPLETE column height from the elevation/section (e.g.
+12'-0" above driveway PLUS the below-ground depth to the footing), not a single
+"+level" note. Convert ft-in to mm.
+
+REAL COUNTS — a column/footing schedule lists TYPES (C1, C2, C3…). Count the
+PHYSICAL members actually drawn in the plan and set 'count' accordingly; do not
+emit one of every type. Two 18"x18" types on a 2-column portal are usually the
+SAME two columns — don't list them twice.
+
+PLATES — give a full plan size in mm (L×W×t). A thickness alone ("12 THK")
+cannot be weighed.
+
+ROOF SHEETING — area = the full covered plan area (span × bay length × bays /
+slopes), not one member's strip.
 
 - Be exhaustive: include every element present on the page; do not omit items
   just because there are many. A long members[] is expected for a busy sheet.

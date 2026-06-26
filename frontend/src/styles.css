@@ -190,3 +190,9 @@ a.btnlink:hover { filter: brightness(1.1); }
   border-radius: 5px; padding: 1px 7px; }
 .calc-inputs .kv b { color: var(--text); font-weight: 600; margin-right: 3px; }
 .calc-note { font-size: 11px; color: var(--accent2); }
+
+.bs-warnings { margin-top: 10px; font-size: 12px; background: #3a1212aa;
+  border: 1px solid #5b1d1d; border-radius: 6px; padding: 6px 10px; color: #fca5a5; }
+.bs-warnings summary { cursor: pointer; font-weight: 600; }
+.bs-warnings ul { margin: 6px 0 0; padding-left: 18px; }
+.bs-warnings li { margin: 2px 0; }

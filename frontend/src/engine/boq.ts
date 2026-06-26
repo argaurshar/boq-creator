@@ -80,8 +80,29 @@ export function buildBoq(members: StoredMember[], rates: Record<string, number>)
     }
   }
 
+  // Dedup: when a truss assembly is present, drop loose steel_member lines that
+  // re-list its parts (the AI sometimes emits a truss AND its chords/webs/struts
+  // as separate members). Match on truss-part wording; never touch base plates,
+  // anchor bolts, stiffeners or column-connection pieces. Removed lines are
+  // reported as warnings, not silently dropped.
+  const hasTruss = validated.some((v) => v.member.member_type === "truss");
+  const DUP_RE = /(top chord|bottom chord|\bchord\b|bottom tie|\btie\b|rafter|\bweb\b|\bstrut\b|purlin|transverse|longitudinal|bracing|diagonal|vertical)/i;
+  const kept = validated.filter(({ row, member }) => {
+    if (hasTruss && member.member_type === "steel_member") {
+      const hay = `${member.label || ""} ${member.evidence || ""} ${member.designation || ""}`;
+      if (DUP_RE.test(hay)) {
+        errors.push({
+          member_id: row.id, label: member.label, warning: true,
+          error: `Removed probable duplicate steel (already counted in the truss): ${(member.designation || "").trim()} ${(member.label || "").trim()}`.trim(),
+        });
+        return false;
+      }
+    }
+    return true;
+  });
+
   // Pass 2: compute quantities with netting applied.
-  for (const { row, member } of validated) {
+  for (const { row, member } of kept) {
     const effective = applyNetting(member, volByLabel);
     for (const q of computeMember(effective)) {
       const rate = Number(rates[q.category] ?? 0.0);

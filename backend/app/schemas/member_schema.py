@@ -82,6 +82,7 @@ class Column(_MemberBase):
     height_mm: float
     main_bars: list[BarGroup] = Field(default_factory=list)
     ties: Stirrups | None = None
+    ties_inner: Stirrups | None = None       # 2nd/inner ring ("2 SETS")
 
 
 class Beam(_MemberBase):
@@ -101,6 +102,8 @@ class Footing(_MemberBase):
     depth_mm: float
     mesh_bottom_x: BarMesh | None = None     # bars running along length
     mesh_bottom_y: BarMesh | None = None     # bars running along breadth
+    mesh_top_x: BarMesh | None = None        # top mat (doubly reinforced footing)
+    mesh_top_y: BarMesh | None = None
 
 
 class Slab(_MemberBase):

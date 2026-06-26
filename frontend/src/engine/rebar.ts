@@ -94,12 +94,20 @@ export function column(m: Member): Quantity[] {
     const cut = H + mat.DEFAULT_LAP_FACTOR * mmToM(bg.dia_mm) + lapsExtra(H, bg.dia_mm);
     rows.push(bbsRow(`${m.label}-M${i + 1}`, bg.dia_mm, bg.count, cut).row);
   });
+  const a = mmToM(m.b_mm) - 2 * cover;
+  const b = mmToM(m.D_mm) - 2 * cover;
   if (m.ties && m.ties.spacing_mm) {
-    const a = mmToM(m.b_mm) - 2 * cover;
-    const b = mmToM(m.D_mm) - 2 * cover;
     const cut = stirrupCutLength(a, b, m.ties.dia_mm);
     const cnt = stirrupCount(H, cover, m.ties.spacing_mm, m.ties.zones);
     rows.push(bbsRow(`${m.label}-T`, m.ties.dia_mm, cnt, cut).row);
+  }
+  // Inner ring ("2 SETS" / outer + inner tie in the schedule). Modelled at the
+  // same core size as the outer ring (a conservative approximation when the
+  // intermediate-bar geometry isn't given).
+  if (m.ties_inner && m.ties_inner.spacing_mm) {
+    const cut = stirrupCutLength(a, b, m.ties_inner.dia_mm);
+    const cnt = stirrupCount(H, cover, m.ties_inner.spacing_mm, m.ties_inner.zones);
+    rows.push(bbsRow(`${m.label}-Ti`, m.ties_inner.dia_mm, cnt, cut).row);
   }
   return rows.length ? [summarise(rows, `column ${m.label}`, m.count)] : [];
 }
@@ -137,8 +145,10 @@ export function footing(m: Member): Quantity[] {
   const cover = mmToM(m.cover_mm);
   const L = mmToM(m.length_mm), B = mmToM(m.breadth_mm);
   const rows: BbsRow[] = [];
-  if (m.mesh_bottom_x) rows.push(meshRows(`${m.label}-X`, m.mesh_bottom_x, B, L, cover));
-  if (m.mesh_bottom_y) rows.push(meshRows(`${m.label}-Y`, m.mesh_bottom_y, L, B, cover));
+  if (m.mesh_bottom_x) rows.push(meshRows(`${m.label}-BX`, m.mesh_bottom_x, B, L, cover));
+  if (m.mesh_bottom_y) rows.push(meshRows(`${m.label}-BY`, m.mesh_bottom_y, L, B, cover));
+  if (m.mesh_top_x) rows.push(meshRows(`${m.label}-TX`, m.mesh_top_x, B, L, cover));
+  if (m.mesh_top_y) rows.push(meshRows(`${m.label}-TY`, m.mesh_top_y, L, B, cover));
   return rows.length ? [summarise(rows, `footing ${m.label}`, m.count)] : [];
 }
 

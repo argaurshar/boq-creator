@@ -103,12 +103,19 @@ def column(m) -> list[Quantity]:
         cut = H + mat.DEFAULT_LAP_FACTOR * mm_to_m(bg.dia_mm) + _laps_extra(H, bg.dia_mm)
         row, _ = _bbs_row(f"{m.label}-M{i+1}", bg.dia_mm, bg.count, cut)
         rows.append(row)
+    a = mm_to_m(m.b_mm) - 2 * cover
+    b = mm_to_m(m.D_mm) - 2 * cover
     if m.ties and m.ties.spacing_mm:
-        a = mm_to_m(m.b_mm) - 2 * cover
-        b = mm_to_m(m.D_mm) - 2 * cover
         cut = _stirrup_cut_length(a, b, m.ties.dia_mm)
         cnt = _stirrup_count(H, cover, m.ties.spacing_mm, m.ties.zones)
         row, _ = _bbs_row(f"{m.label}-T", m.ties.dia_mm, cnt, cut)
+        rows.append(row)
+    # Inner ring ("2 SETS" / outer + inner tie). Modelled at the same core size
+    # (conservative when the intermediate-bar geometry isn't given).
+    if m.ties_inner and m.ties_inner.spacing_mm:
+        cut = _stirrup_cut_length(a, b, m.ties_inner.dia_mm)
+        cnt = _stirrup_count(H, cover, m.ties_inner.spacing_mm, m.ties_inner.zones)
+        row, _ = _bbs_row(f"{m.label}-Ti", m.ties_inner.dia_mm, cnt, cut)
         rows.append(row)
     return [_summarise(rows, f"column {m.label}", m.count)] if rows else []
 
@@ -154,9 +161,13 @@ def footing(m) -> list[Quantity]:
     L, B = mm_to_m(m.length_mm), mm_to_m(m.breadth_mm)
     rows = []
     if m.mesh_bottom_x:                      # bars along length, spaced across breadth
-        rows.append(_mesh_rows(f"{m.label}-X", m.mesh_bottom_x, B, L, cover))
+        rows.append(_mesh_rows(f"{m.label}-BX", m.mesh_bottom_x, B, L, cover))
     if m.mesh_bottom_y:                      # bars along breadth, spaced across length
-        rows.append(_mesh_rows(f"{m.label}-Y", m.mesh_bottom_y, L, B, cover))
+        rows.append(_mesh_rows(f"{m.label}-BY", m.mesh_bottom_y, L, B, cover))
+    if m.mesh_top_x:                         # top mat (doubly reinforced footing)
+        rows.append(_mesh_rows(f"{m.label}-TX", m.mesh_top_x, B, L, cover))
+    if m.mesh_top_y:
+        rows.append(_mesh_rows(f"{m.label}-TY", m.mesh_top_y, L, B, cover))
     return [_summarise(rows, f"footing {m.label}", m.count)] if rows else []
 
 
