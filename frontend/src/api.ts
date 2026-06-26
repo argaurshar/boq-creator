@@ -21,6 +21,10 @@ export interface Project {
   client: string;
   location: string;
   currency: string;
+  prepared_by?: string;
+  report_date?: string;
+  drawing_ref?: string;
+  built_up_area_m2?: number;
 }
 
 export interface RateRow {
@@ -143,6 +147,13 @@ export const api = {
     store.projects.push(p);
     store.members[p.id] = [];
     store.rates[p.id] = {};
+    save();
+    return ok(p);
+  },
+
+  updateProject: (pid: number, patch: Partial<Project>) => {
+    const p = getProject(pid);
+    Object.assign(p, patch, { id: p.id });
     save();
     return ok(p);
   },
@@ -306,5 +317,12 @@ export const api = {
     const p = getProject(pid);
     const boq = await api.getBoq(pid);
     downloadBoqXlsx(p, boq);
+  },
+
+  openReport: async (pid: number) => {
+    const p = getProject(pid);
+    const boq = await api.getBoq(pid);
+    const { openBoqReport } = await import("./engine/report");
+    openBoqReport(p, boq);
   },
 };

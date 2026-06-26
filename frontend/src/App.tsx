@@ -30,6 +30,7 @@ export default function App() {
   // sandboxed/embedded browsers (e.g. VS Code's Simple Browser).
   const [showNewProject, setShowNewProject] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   const project = projects.find((p) => p.id === pid) || null;
 
@@ -123,16 +124,31 @@ export default function App() {
         </select>
         <button onClick={() => setShowNewProject(true)}>+ Project</button>
         {pid !== null && (
-          <button
-            className="accent"
-            onClick={() => {
-              api.exportXlsx(pid).catch((e: any) =>
-                setError("Export failed: " + e.message)
-              );
-            }}
-          >
-            ⬇ Export Excel
-          </button>
+          <>
+            <button onClick={() => setShowDetails(true)} title="Edit client, drawing ref, prepared-by, built-up area…">
+              ✎ Details
+            </button>
+            <button
+              onClick={() => {
+                api.openReport(pid).catch((e: any) =>
+                  setError("Report failed: " + e.message)
+                );
+              }}
+              title="Open a printable report — use the browser's Save as PDF"
+            >
+              🖨 Report
+            </button>
+            <button
+              className="accent"
+              onClick={() => {
+                api.exportXlsx(pid).catch((e: any) =>
+                  setError("Export failed: " + e.message)
+                );
+              }}
+            >
+              ⬇ Export Excel
+            </button>
+          </>
         )}
       </div>
       {error && <div className="errbar">{error}</div>}
@@ -201,6 +217,76 @@ export default function App() {
           onClose={() => setShowKey(false)}
         />
       )}
+      {showDetails && project && (
+        <ProjectDetailsModal
+          project={project}
+          onClose={() => setShowDetails(false)}
+          onSave={async (patch) => {
+            await api.updateProject(project.id, patch);
+            const ps = await api.listProjects();
+            setProjects(ps);
+            setShowDetails(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- Project details */
+function ProjectDetailsModal({
+  project, onClose, onSave,
+}: {
+  project: Project;
+  onClose: () => void;
+  onSave: (patch: Partial<Project>) => Promise<void>;
+}) {
+  const [f, setF] = useState({
+    name: project.name || "",
+    client: project.client || "",
+    location: project.location || "",
+    currency: project.currency || "INR",
+    prepared_by: project.prepared_by || "",
+    drawing_ref: project.drawing_ref || "",
+    report_date: project.report_date || "",
+    built_up_area_m2: project.built_up_area_m2 ? String(project.built_up_area_m2) : "",
+  });
+  const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
+  const field = (k: keyof typeof f, label: string, type = "text") => (
+    <label className="ff"><span>{label}</span>
+      <input type={type} value={f[k]} onChange={(e) => set(k, e.target.value)} /></label>
+  );
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 520 }}>
+        <h3 style={{ margin: "0 0 4px" }}>Project details</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Used in the printable report and Excel header.
+        </p>
+        <div className="ffgrid">
+          {field("name", "Project name")}
+          {field("client", "Client")}
+          {field("location", "Location")}
+          {field("currency", "Currency (e.g. INR)")}
+          {field("prepared_by", "Prepared by")}
+          {field("drawing_ref", "Drawing ref.")}
+          {field("report_date", "Date")}
+          {field("built_up_area_m2", "Built-up area (m²)", "number")}
+        </div>
+        <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" onClick={() => onSave({
+            name: f.name.trim() || "Untitled Project",
+            client: f.client.trim(),
+            location: f.location.trim(),
+            currency: f.currency.trim() || "INR",
+            prepared_by: f.prepared_by.trim(),
+            drawing_ref: f.drawing_ref.trim(),
+            report_date: f.report_date.trim(),
+            built_up_area_m2: f.built_up_area_m2 ? Number(f.built_up_area_m2) : undefined,
+          })}>Save</button>
+        </div>
+      </div>
     </div>
   );
 }

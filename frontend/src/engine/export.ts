@@ -21,6 +21,13 @@ function boqSheet(project: any, boq: Boq): XLSX.WorkSheet {
 
   aoa.push([`Bill of Quantities — ${project.name || "Project"}`]);
   aoa.push([`Client: ${project.client || ""}    Location: ${project.location || ""}`]);
+  const meta2 = [
+    project.drawing_ref ? `Drawing ref: ${project.drawing_ref}` : "",
+    project.report_date ? `Date: ${project.report_date}` : "",
+    project.prepared_by ? `Prepared by: ${project.prepared_by}` : "",
+    project.built_up_area_m2 ? `Built-up area: ${project.built_up_area_m2} m2` : "",
+  ].filter(Boolean).join("    ");
+  if (meta2) aoa.push([meta2]);
   aoa.push([]);
   aoa.push([...COLUMNS]);
   const headerRow = aoa.length;
@@ -112,6 +119,23 @@ function trussSheet(boq: Boq): XLSX.WorkSheet | null {
   return ws;
 }
 
+function costAbstractSheet(project: any, boq: Boq): XLSX.WorkSheet {
+  const total = boq.grand_total || 0;
+  const area = Number(project.built_up_area_m2) || 0;
+  const aoa: any[][] = [[`Cost Abstract — ${project.name || "Project"}`], []];
+  aoa.push(["Category", "Amount", "Share %"]);
+  for (const g of boq.groups) {
+    const pct = total > 0 ? pyRound((g.subtotal / total) * 100, 1) : 0;
+    aoa.push([g.label, r3(g.subtotal), pct]);
+  }
+  aoa.push([]);
+  aoa.push(["GRAND TOTAL", r3(total), ""]);
+  if (area) aoa.push([`Cost per m² (built-up ${area} m²)`, r3(total / area), ""]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 10 }];
+  return ws;
+}
+
 function assumptionsSheet(project: any, boq: Boq): XLSX.WorkSheet {
   const aoa: any[][] = [["Assumptions & Basis of Measurement"]];
   const rows: [string, string][] = [
@@ -137,6 +161,7 @@ function assumptionsSheet(project: any, boq: Boq): XLSX.WorkSheet {
 
 export function downloadBoqXlsx(project: any, boq: Boq): void {
   const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, costAbstractSheet(project, boq), "Cost Abstract");
   XLSX.utils.book_append_sheet(wb, boqSheet(project, boq), "BOQ");
   XLSX.utils.book_append_sheet(wb, bbsSheet(boq), "Bar Bending Schedule");
   const trusses = trussSheet(boq);
