@@ -13,6 +13,7 @@ import {
 } from "./api";
 import { STEEL_SECTIONS } from "./engine/materials";
 import { DEMO_RATES } from "./engine/demo";
+import { materialTakeoff } from "./engine/takeoff";
 
 const INR = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -1170,6 +1171,34 @@ function CenterPanel({
                 </tbody>
               </table>
             )}
+
+            {(() => {
+              const takeoff = materialTakeoff(boq);
+              if (!takeoff.length) return null;
+              return (
+                <details className="matsum" open>
+                  <summary>📦 Material summary <span className="muted small">(indicative — verify mixes)</span></summary>
+                  <div className="matsum-body">
+                    {takeoff.map((sec) => (
+                      <div className="matsec" key={sec.title}>
+                        <div className="matsec-title">{sec.title}</div>
+                        <table className="mattable">
+                          <tbody>
+                            {sec.rows.map((r, i) => (
+                              <tr key={i}>
+                                <td>{r.material}</td>
+                                <td className="num">{QTY(r.qty)}</td>
+                                <td className="unit">{r.unit}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              );
+            })()}
           </>
         )}
       </div>

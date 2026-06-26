@@ -5,6 +5,7 @@
 import * as XLSX from "xlsx";
 import { Boq } from "./boq";
 import { pyRound } from "./units";
+import { materialTakeoff } from "./takeoff";
 
 const COLUMNS = ["Item", "Description", "No.", "L (m)", "B (m)", "D/H (m)",
   "Quantity", "Unit", "Rate (INR)", "Amount (INR)"];
@@ -136,6 +137,21 @@ function costAbstractSheet(project: any, boq: Boq): XLSX.WorkSheet {
   return ws;
 }
 
+function materialSheet(boq: Boq): XLSX.WorkSheet | null {
+  const sections = materialTakeoff(boq);
+  if (!sections.length) return null;
+  const aoa: any[][] = [["Material Summary (indicative — verify mixes)"], []];
+  for (const s of sections) {
+    aoa.push([s.title]);
+    aoa.push(["Material", "Qty", "Unit"]);
+    for (const r of s.rows) aoa.push([r.material, r.qty, r.unit]);
+    aoa.push([]);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 32 }, { wch: 14 }, { wch: 8 }];
+  return ws;
+}
+
 function assumptionsSheet(project: any, boq: Boq): XLSX.WorkSheet {
   const aoa: any[][] = [["Assumptions & Basis of Measurement"]];
   const rows: [string, string][] = [
@@ -166,6 +182,8 @@ export function downloadBoqXlsx(project: any, boq: Boq): void {
   XLSX.utils.book_append_sheet(wb, bbsSheet(boq), "Bar Bending Schedule");
   const trusses = trussSheet(boq);
   if (trusses) XLSX.utils.book_append_sheet(wb, trusses, "Steel Truss Details");
+  const materials = materialSheet(boq);
+  if (materials) XLSX.utils.book_append_sheet(wb, materials, "Material Summary");
   XLSX.utils.book_append_sheet(wb, assumptionsSheet(project, boq), "Assumptions");
   const fname = `BOQ_${String(project.name || "Project").replace(/ /g, "_")}.xlsx`;
   XLSX.writeFile(wb, fname);

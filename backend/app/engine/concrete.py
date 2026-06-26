@@ -25,6 +25,7 @@ def column(m) -> list[Quantity]:
             unit="m3", value=vol, nos=n, length_m=b, breadth_m=D, depth_m=H,
             audit=[FormulaStep("concrete.column.volume", "b*D*H*count",
                                {"b_m": b, "D_m": D, "H_m": H, "count": n}, vol, CLAUSE)],
+            extra={"grade": _grade_desc(m)},
         ),
         Quantity(
             category="formwork", description=f"Formwork to column {m.label}".strip(),
@@ -47,6 +48,7 @@ def beam(m) -> list[Quantity]:
             unit="m3", value=vol, nos=n, length_m=L, breadth_m=b, depth_m=d,
             audit=[FormulaStep("concrete.beam.volume", "b*d*L*count",
                                {"b_m": b, "d_m": d, "L_m": L, "count": n}, vol, CLAUSE)],
+            extra={"grade": _grade_desc(m)},
         ),
         Quantity(
             category="formwork", description=f"Formwork to beam {m.label}".strip(),
@@ -68,6 +70,7 @@ def footing(m) -> list[Quantity]:
             unit="m3", value=vol, nos=n, length_m=L, breadth_m=B, depth_m=D,
             audit=[FormulaStep("concrete.footing.volume", "L*B*D*count",
                                {"L_m": L, "B_m": B, "D_m": D, "count": n}, vol, CLAUSE)],
+            extra={"grade": _grade_desc(m)},
         ),
     ]
 
@@ -87,6 +90,7 @@ def slab(m) -> list[Quantity]:
             audit=[FormulaStep("concrete.slab.volume", "(L*B - openings)*t*count",
                                {"L_m": L, "B_m": B, "openings_m2": m.opening_area_m2,
                                 "t_m": t, "count": n}, vol, CLAUSE)],
+            extra={"grade": _grade_desc(m)},
         ),
         Quantity(
             category="formwork", description=f"Formwork (soffit) to slab {m.label}".strip(),
@@ -109,6 +113,7 @@ def rcc_wall(m) -> list[Quantity]:
             unit="m3", value=vol, nos=n, length_m=L, breadth_m=t, depth_m=H,
             audit=[FormulaStep("concrete.wall.volume", "L*t*H*count",
                                {"L_m": L, "t_m": t, "H_m": H, "count": n}, vol, CLAUSE)],
+            extra={"grade": _grade_desc(m)},
         ),
         Quantity(
             category="formwork", description=f"Formwork to wall {m.label}".strip(),
@@ -129,5 +134,6 @@ def pcc(m) -> list[Quantity]:
             unit="m3", value=vol, nos=n, length_m=L, breadth_m=B, depth_m=t,
             audit=[FormulaStep("concrete.pcc.volume", "L*B*t*count",
                                {"L_m": L, "B_m": B, "t_m": t, "count": n}, vol, CLAUSE)],
+            extra={"grade": _grade_desc(m)},
         ),
     ]
