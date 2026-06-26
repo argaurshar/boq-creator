@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useCallback, ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, useCallback, ReactNode } from "react";
 import {
   api,
   getApiKey,
@@ -12,6 +12,7 @@ import {
   Member,
 } from "./api";
 import { STEEL_SECTIONS } from "./engine/materials";
+import { DEMO_RATES } from "./engine/demo";
 
 const INR = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -157,7 +158,13 @@ export default function App() {
             members={members}
             onChange={() => refresh(pid)}
           />
-          <CenterPanel boq={boq} onChange={() => refresh(pid)} />
+          <CenterPanel
+            pid={pid}
+            boq={boq}
+            rates={rates}
+            currency={project?.currency || "INR"}
+            onChange={() => refresh(pid)}
+          />
           <RightPanel
             pid={pid}
             project={project}
@@ -815,119 +822,281 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /* --------------------------------------------------------------- Center */
-function CenterPanel({ boq, onChange }: { boq: Boq | null; onChange: () => void }) {
+const QTY = (n: number) =>
+  n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
+const INR0 = (n: number) =>
+  "₹" + Math.round(n).toLocaleString("en-IN");
+
+function CenterPanel({
+  pid, boq, rates, currency, onChange,
+}: {
+  pid: number;
+  boq: Boq | null;
+  rates: RateRow[];
+  currency: string;
+  onChange: () => void;
+}) {
   const [open, setOpen] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [reviewOnly, setReviewOnly] = useState(false);
+  const [contingency, setContingency] = useState("0");
+  const [localRates, setLocalRates] = useState<Record<string, number>>({});
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Seed/refresh the editable rate state whenever the stored rates change.
+  useEffect(() => {
+    const m: Record<string, number> = {};
+    for (const r of rates) m[r.category] = r.rate;
+    setLocalRates(m);
+  }, [rates]);
+
   if (!boq) return <div className="col center"><div className="empty">Loading…</div></div>;
 
+  const rateFor = (cat: string) => localRates[cat] ?? 0;
+  const amountFor = (it: BoqItem) => it.quantity * rateFor(it.category);
+
+  // Persist a rate change (debounced) but update the UI instantly for live totals.
+  const setRate = (cat: string, value: number) => {
+    setLocalRates((p) => ({ ...p, [cat]: value }));
+    clearTimeout(timers.current[cat]);
+    timers.current[cat] = setTimeout(() => {
+      api.setRate(pid, cat, value || 0).then(onChange).catch(() => {});
+    }, 400);
+  };
+
+  const loadIndicative = async () => {
+    const next: Record<string, number> = { ...localRates };
+    for (const g of boq.groups) {
+      const r = (DEMO_RATES as Record<string, number>)[g.category];
+      if (r != null) next[g.category] = r;
+    }
+    setLocalRates(next);
+    await Promise.all(
+      boq.groups.map((g) => {
+        const r = (DEMO_RATES as Record<string, number>)[g.category];
+        return r != null ? api.setRate(pid, g.category, r) : Promise.resolve();
+      })
+    );
+    onChange();
+  };
+
+  const matches = (it: BoqItem) => {
+    if (reviewOnly && (it.is_verified || it.source === "manual")) return false;
+    if (search && !it.description.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  };
+
+  const groups = boq.groups
+    .map((g) => ({ ...g, shown: g.items.filter(matches) }))
+    .filter((g) => g.shown.length > 0);
+
+  const subtotalOf = (items: BoqItem[]) => items.reduce((s, it) => s + amountFor(it), 0);
+  const grand = boq.groups.reduce((s, g) => s + subtotalOf(g.items), 0);
+  const cont = Number(contingency) || 0;
+  const tentative = grand * (1 + cont / 100);
+
+  const allItems = boq.groups.flatMap((g) => g.items);
+  const needReview = allItems.filter((it) => !it.is_verified && it.source !== "manual").length;
+  const ratesSet = boq.groups.filter((g) => rateFor(g.category) > 0).length;
   const rowKey = (g: string, i: number) => `${g}-${i}`;
+
   return (
     <div className="col center">
       <h2>Bill of Quantities</h2>
       <div className="scroll">
         {boq.groups.length === 0 ? (
           <div className="empty">
-            No quantities yet. Upload a drawing, add an element manually, or use
-            the chat on the right (e.g. <em>"add 5 columns 300x600 3m high with
-            8-16mm bars"</em>).
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+            No quantities yet. Upload a drawing and press <strong>Proceed</strong>,
+            add an element manually on the left, or describe one in the chat
+            (e.g. <em>"add 5 columns 300x600 3m high with 8-16mm bars"</em>).
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th className="num">No.</th>
-                <th className="num">Qty</th>
-                <th>Unit</th>
-                <th className="num">Rate</th>
-                <th className="num">Amount</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {boq.groups.map((g) => (
-                <Fragment key={g.category}>
-                  <tr className="section">
-                    <td colSpan={7}>{g.label}</td>
+          <>
+            {/* ---- Summary / tentative estimate ---- */}
+            <div className="boq-summary">
+              <div className="bs-head">
+                <div>
+                  <div className="bs-label">Tentative estimate</div>
+                  <div className="bs-total">{INR0(tentative)}</div>
+                  <div className="bs-sub">
+                    {boq.groups.length} categories · {allItems.length} items ·{" "}
+                    {needReview > 0
+                      ? <span className="bs-warn">{needReview} need review</span>
+                      : "all verified"}{" "}
+                    · rates set {ratesSet}/{boq.groups.length}
+                  </div>
+                </div>
+                <div className="bs-actions">
+                  <label className="bs-cont">
+                    <span>Contingency %</span>
+                    <input type="number" value={contingency} min="0"
+                      onChange={(e) => setContingency(e.target.value)} />
+                  </label>
+                  {cont > 0 && <div className="bs-base">base {INR0(grand)}</div>}
+                  <button className="accent" onClick={loadIndicative}>
+                    ⚡ Load indicative rates
+                  </button>
+                </div>
+              </div>
+              {ratesSet === 0 && (
+                <div className="bs-hint">
+                  Rates are ₹0 — set a rate per category below (or load indicative
+                  rates) to see the cost. Currency: {currency}.
+                </div>
+              )}
+              <div className="bs-chips">
+                {boq.groups.map((g) => {
+                  const st = subtotalOf(g.items);
+                  const share = grand > 0 ? (st / grand) * 100 : 0;
+                  return (
+                    <button
+                      key={g.category}
+                      className={`bs-chip cat-${g.category}`}
+                      title={`${g.label}: ${INR0(st)} (${share.toFixed(0)}%)`}
+                      onClick={() => {
+                        setCollapsed((p) => { const n = new Set(p); n.delete(g.category); return n; });
+                        document.getElementById(`cat-${g.category}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                    >
+                      <span className="chip-name">{g.label}</span>
+                      <span className="chip-amt">{INR0(st)}</span>
+                      <span className="chip-bar"><i style={{ width: `${share}%` }} /></span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ---- Controls ---- */}
+            <div className="boq-controls">
+              <input className="boq-search" placeholder="🔍 Filter line items…"
+                value={search} onChange={(e) => setSearch(e.target.value)} />
+              <label className="boq-toggle">
+                <input type="checkbox" checked={reviewOnly}
+                  onChange={(e) => setReviewOnly(e.target.checked)} />
+                <span>Needs review only</span>
+              </label>
+              <div className="spacer" />
+              <button className="link" onClick={() => setCollapsed(new Set(boq.groups.map((g) => g.category)))}>collapse all</button>
+              <button className="link" onClick={() => setCollapsed(new Set())}>expand all</button>
+            </div>
+
+            {/* ---- Table ---- */}
+            {groups.length === 0 ? (
+              <div className="empty">No line items match your filter.</div>
+            ) : (
+              <table className="boq-table">
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th className="num">No.</th>
+                    <th className="num">Quantity</th>
+                    <th className="num">Rate</th>
+                    <th className="num">Amount</th>
+                    <th></th>
                   </tr>
-                  {g.items.map((it, i) => (
-                    <RowWithAudit
-                      key={rowKey(g.category, i)}
-                      it={it}
-                      open={open === rowKey(g.category, i)}
-                      toggle={() =>
-                        setOpen(
-                          open === rowKey(g.category, i)
-                            ? null
-                            : rowKey(g.category, i)
-                        )
-                      }
-                    />
-                  ))}
-                  <tr className="subtotal" key={g.category + "-sub"}>
-                    <td colSpan={5}>Sub-total — {g.label}</td>
-                    <td className="num">{INR(g.subtotal)}</td>
+                </thead>
+                <tbody>
+                  {groups.map((g) => {
+                    const isCol = collapsed.has(g.category);
+                    const unit = g.items[0]?.unit || "";
+                    const st = subtotalOf(g.shown);
+                    return (
+                      <Fragment key={g.category}>
+                        <tr className={`cat-head cat-${g.category}`} id={`cat-${g.category}`}>
+                          <td className="cat-name" colSpan={2}
+                            onClick={() => setCollapsed((p) => { const n = new Set(p); n.has(g.category) ? n.delete(g.category) : n.add(g.category); return n; })}>
+                            <span className="chev">{isCol ? "▸" : "▾"}</span>
+                            {g.label}
+                            <span className="cat-count">{g.shown.length}</span>
+                          </td>
+                          <td></td>
+                          <td className="num">
+                            <span className="rate-edit" onClick={(e) => e.stopPropagation()}>
+                              ₹<input type="number" value={localRates[g.category] ?? ""}
+                                placeholder="0"
+                                onChange={(e) => setRate(g.category, Number(e.target.value))} />
+                              <span className="per">/{unit}</span>
+                            </span>
+                          </td>
+                          <td className="num cat-sub">{INR(st)}</td>
+                          <td></td>
+                        </tr>
+                        {!isCol && g.shown.map((it, i) => {
+                          const k = rowKey(g.category, i);
+                          return (
+                            <ItemRow key={k} it={it} amount={amountFor(it)} rate={rateFor(it.category)}
+                              open={open === k} toggle={() => setOpen(open === k ? null : k)} />
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  })}
+                  <tr className="grand-row">
+                    <td colSpan={4} className="grand">GRAND TOTAL{cont > 0 ? ` + ${cont}% contingency` : ""}</td>
+                    <td className="num grand">{INR(tentative)}</td>
                     <td></td>
                   </tr>
-                </Fragment>
-              ))}
-              <tr>
-                <td colSpan={5} className="grand">GRAND TOTAL</td>
-                <td className="num grand">{INR(boq.grand_total)}</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
+                </tbody>
+              </table>
+            )}
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function RowWithAudit({
-  it,
-  open,
-  toggle,
+function ItemRow({
+  it, amount, rate, open, toggle,
 }: {
-  it: BoqItem;
-  open: boolean;
-  toggle: () => void;
+  it: BoqItem; amount: number; rate: number; open: boolean; toggle: () => void;
 }) {
+  const review = !it.is_verified && it.source !== "manual";
   return (
     <>
-      <tr>
-        <td>
+      <tr className={review ? "item review" : "item"}>
+        <td className="desc">
           {it.description}
-          {it.source !== "manual" && (
-            <span className={`badge ${it.source}`}>{it.source}</span>
-          )}
-          {!it.is_verified && it.source !== "manual" && (
-            <span className="badge unverified">review</span>
-          )}
+          {it.source !== "manual" && <span className={`badge ${it.source}`}>{it.source}</span>}
+          {review && <span className="badge unverified">review</span>}
         </td>
         <td className="num">{it.nos ?? ""}</td>
-        <td className="num">{it.quantity}</td>
-        <td>{it.unit}</td>
-        <td className="num">{it.rate || ""}</td>
-        <td className="num">{it.amount ? INR(it.amount) : ""}</td>
-        <td>
-          <button className="link" onClick={toggle}>
+        <td className="num">{QTY(it.quantity)} <span className="unit">{it.unit}</span></td>
+        <td className="num rate-cell">{rate ? QTY(rate) : <span className="muted">—</span>}</td>
+        <td className="num amt">{amount ? INR(amount) : <span className="muted">—</span>}</td>
+        <td className="num">
+          <button className={`calc-btn ${open ? "on" : ""}`} onClick={toggle}>
             {open ? "hide" : "calc"}
           </button>
         </td>
       </tr>
       {open && (
-        <tr>
-          <td colSpan={7}>
-            <div className="audit">
+        <tr className="calc-row">
+          <td colSpan={6}>
+            <div className="calc-card">
               {it.audit.map((s, k) => (
-                <div key={k}>
-                  {s.formula_id}: {s.expression} = {s.result}{"  "}
-                  [{s.clause_ref}]
-                  {"\n   inputs: " + JSON.stringify(s.inputs)}
+                <div className="calc-step" key={k}>
+                  <div className="calc-expr">
+                    <code>{s.expression}</code> = <strong>{QTY(s.result)}</strong>
+                    {s.clause_ref && <span className="calc-clause">{s.clause_ref}</span>}
+                  </div>
+                  <div className="calc-inputs">
+                    {Object.entries(s.inputs || {})
+                      .filter(([, v]) => typeof v !== "object")
+                      .map(([key, v]) => (
+                        <span className="kv" key={key}><b>{key}</b> {String(v)}</span>
+                      ))}
+                  </div>
                 </div>
               ))}
-              {it.extra?.bbs && (
-                <div>BBS rows: {it.extra.bbs.length} (see Excel export)</div>
+              {Array.isArray(it.extra?.truss_segments) && (
+                <div className="calc-note">Truss: {it.extra.truss_segments.length} member(s) — see "Steel Truss Details" in the Excel export.</div>
+              )}
+              {Array.isArray(it.extra?.bbs) && (
+                <div className="calc-note">BBS: {it.extra.bbs.length} bar row(s) — see "Bar Bending Schedule" in the Excel export.</div>
               )}
             </div>
           </td>
