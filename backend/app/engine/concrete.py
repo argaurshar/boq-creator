@@ -63,6 +63,7 @@ def footing(m) -> list[Quantity]:
     L, B, D = mm_to_m(m.length_mm), mm_to_m(m.breadth_mm), mm_to_m(m.depth_mm)
     n = m.count
     vol = L * B * D * n
+    shutter = 2 * (L + B) * D * n          # vertical side shuttering of the pad
     label = f"{_grade_desc(m)} RCC footing {m.label}".strip()
     return [
         Quantity(
@@ -71,6 +72,12 @@ def footing(m) -> list[Quantity]:
             audit=[FormulaStep("concrete.footing.volume", "L*B*D*count",
                                {"L_m": L, "B_m": B, "D_m": D, "count": n}, vol, CLAUSE)],
             extra={"grade": _grade_desc(m)},
+        ),
+        Quantity(
+            category="formwork", description=f"Formwork to footing {m.label}".strip(),
+            unit="m2", value=shutter, nos=n,
+            audit=[FormulaStep("concrete.footing.formwork", "2*(L+B)*D*count",
+                               {"L_m": L, "B_m": B, "D_m": D, "count": n}, shutter, CLAUSE)],
         ),
     ]
 

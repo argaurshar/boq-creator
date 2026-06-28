@@ -138,5 +138,35 @@ export function buildBoq(members: StoredMember[], rates: Record<string, number>)
     groups.push({ category: cat, label, items, subtotal });
   }
 
+  // Coverage check: deterministic completeness hints. The AI extractor often
+  // reads only part of a multi-sheet drawing set (e.g. footings but not the
+  // column layout), and the BOQ would otherwise under-report silently. These
+  // notes never change quantities — they only flag likely omissions to review.
+  for (const note of coverageNotes(kept.map((k) => k.member), (catGroups.formwork || []).length > 0)) {
+    errors.push({ warning: true, coverage: true, error: note });
+  }
+
   return { groups, grand_total: pyRound(grand_total, 2), errors };
+}
+
+// Likely-omission hints from the set of captured members. Conservative: each
+// rule fires only on a clear structural inconsistency, worded as a review hint.
+export function coverageNotes(members: Member[], hasFormwork: boolean): string[] {
+  const n = (t: string) => members.filter((m) => m.member_type === t).length;
+  const footings = n("footing"), columns = n("column"), beams = n("beam"), pccs = n("pcc");
+  const rccConcrete = footings + columns + beams + n("slab") + n("rcc_wall");
+  const notes: string[] = [];
+
+  if (footings > 0 && columns === 0)
+    notes.push(`${footings} footing(s) but no columns were captured — check the column layout / schedule sheet was read.`);
+  if (columns > 0 && footings === 0)
+    notes.push(`${columns} column(s) but no footings/foundations were captured — check the foundation plan was read.`);
+  if (footings > 0 && pccs === 0)
+    notes.push("Footings have no PCC / lean-concrete layer below them — IS practice places lean concrete under every footing.");
+  if (rccConcrete > 0 && !hasFormwork)
+    notes.push("RCC concrete is present but no formwork / shuttering is being counted.");
+  if ((footings > 0 || columns > 0) && beams === 0)
+    notes.push("Footings/columns but no tie/plinth or grade beams — foundations are usually tied together with plinth/tie beams.");
+
+  return notes;
 }

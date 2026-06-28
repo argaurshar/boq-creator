@@ -56,6 +56,7 @@ export function footing(m: Member): Quantity[] {
   const L = mmToM(m.length_mm), B = mmToM(m.breadth_mm), D = mmToM(m.depth_mm);
   const n = m.count;
   const vol = L * B * D * n;
+  const shutter = 2 * (L + B) * D * n;   // vertical side shuttering of the pad
   const label = `${grade(m)} RCC footing ${m.label}`.trim();
   return [
     qty({
@@ -64,6 +65,12 @@ export function footing(m: Member): Quantity[] {
       audit: [step("concrete.footing.volume", "L*B*D*count",
         { L_m: L, B_m: B, D_m: D, count: n }, vol, CLAUSE)],
       extra: { grade: grade(m) },
+    }),
+    qty({
+      category: "formwork", description: `Formwork to footing ${m.label}`.trim(),
+      unit: "m2", value: shutter, nos: n,
+      audit: [step("concrete.footing.formwork", "2*(L+B)*D*count",
+        { L_m: L, B_m: B, D_m: D, count: n }, shutter, CLAUSE)],
     }),
   ];
 }
