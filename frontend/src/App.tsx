@@ -60,13 +60,29 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    api
-      .listProjects()
-      .then((ps) => {
+    // Always open on a FRESH, empty BOQ — never reopen a previously generated
+    // one. We land on an existing empty project if there is one (so repeated
+    // opens don't pile up blanks), otherwise we create a new empty project.
+    // Earlier projects are kept and stay selectable in the project dropdown.
+    (async () => {
+      try {
+        let ps = await api.listProjects();
+        let targetId: number | null = null;
+        for (const p of ps) {
+          const m = await api.listMembers(p.id);
+          if (m.length === 0) { targetId = p.id; break; }
+        }
+        if (targetId === null) {
+          const np = await api.createProject({ name: "New Project" });
+          ps = [np, ...ps];
+          targetId = np.id;
+        }
         setProjects(ps);
-        setPid((prev) => prev ?? ps[0]?.id ?? null);
-      })
-      .catch((e) => setError("Failed to reach the backend: " + e.message));
+        setPid((prev) => prev ?? targetId);
+      } catch (e: any) {
+        setError("Failed to reach the backend: " + e.message);
+      }
+    })();
   }, []);
 
   useEffect(() => {
