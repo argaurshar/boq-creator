@@ -233,6 +233,12 @@ a.btnlink:hover { filter: brightness(1.1); }
 .bs-warnings ul { margin: 6px 0 0; padding-left: 18px; }
 .bs-warnings li { margin: 2px 0; }
 
+.bs-coverage { margin-top: 10px; font-size: 12px; background: #11243aaa;
+  border: 1px solid #1d4a63; border-radius: 6px; padding: 6px 10px; color: #7ccbf0; }
+.bs-coverage summary { cursor: pointer; font-weight: 600; }
+.bs-coverage ul { margin: 6px 0 0; padding-left: 18px; }
+.bs-coverage li { margin: 2px 0; }
+
 /* ===================== AI re-check ===================== */
 .review-card { border-color: #5b6ef0; }
 .review-item { border-top: 1px solid var(--line); padding: 8px 0 4px; }

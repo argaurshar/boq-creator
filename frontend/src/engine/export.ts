@@ -167,8 +167,9 @@ function assumptionsSheet(project: any, boq: Boq): XLSX.WorkSheet {
   for (const kv of rows) aoa.push(kv);
   if (boq.errors && boq.errors.length) {
     aoa.push([]);
-    aoa.push(["Unresolved members"]);
-    for (const e of boq.errors) aoa.push([e.label || "", e.error || ""]);
+    aoa.push(["Notes & coverage check"]);
+    for (const e of boq.errors)
+      aoa.push([e.coverage ? "Coverage" : (e.label || "Note"), e.error || ""]);
   }
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 26 }, { wch: 70 }];

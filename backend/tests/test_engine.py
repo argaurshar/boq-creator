@@ -317,3 +317,49 @@ def test_roof_sheeting_area_with_lap():
     q = compute_member(m)[0]
     assert q.category == "roofing" and q.unit == "m2"
     assert approx(q.value, 39.6)
+
+
+def test_footing_emits_side_formwork():
+    # 2.0 x 2.0 x 0.4 pad -> side shuttering = 2*(2+2)*0.4 = 3.2 m2
+    m = Footing(label="F1", length_mm=2000, breadth_mm=2000, depth_mm=400,
+                mesh_bottom_x=BarMesh(dia_mm=12, spacing_mm=150),
+                mesh_bottom_y=BarMesh(dia_mm=12, spacing_mm=150))
+    form = _by_cat(compute_member(m), "formwork")
+    assert form and approx(form[0].value, 3.2)
+
+
+def _row(i, params):
+    from types import SimpleNamespace
+    return SimpleNamespace(id=i, params=params, source="ai", confidence=1.0,
+                           is_verified=False, label=params.get("label", ""))
+
+
+def test_coverage_flags_footings_without_columns_pcc_beams():
+    from app.services import build_boq
+    boq = build_boq([
+        _row(1, {"member_type": "footing", "label": "F1", "length_mm": 2000,
+                 "breadth_mm": 2000, "depth_mm": 400}),
+    ], {})
+    cov = [e["error"] for e in boq["errors"] if e.get("coverage")]
+    joined = " ".join(cov).lower()
+    assert any("no columns" in c.lower() for c in cov)
+    assert "pcc" in joined
+    assert "tie" in joined or "plinth" in joined
+    # footing now emits formwork, so the "no formwork" rule must NOT fire
+    assert "no formwork" not in joined
+
+
+def test_coverage_quiet_on_complete_set():
+    from app.services import build_boq
+    boq = build_boq([
+        _row(1, {"member_type": "footing", "label": "F1", "length_mm": 2000,
+                 "breadth_mm": 2000, "depth_mm": 400}),
+        _row(2, {"member_type": "pcc", "label": "P1", "length_mm": 2200,
+                 "breadth_mm": 2200, "thickness_mm": 100}),
+        _row(3, {"member_type": "column", "label": "C1", "b_mm": 300,
+                 "D_mm": 450, "height_mm": 3000}),
+        _row(4, {"member_type": "beam", "label": "TB1", "b_mm": 300,
+                 "depth_mm": 450, "clear_span_mm": 3000}),
+    ], {})
+    cov = [e for e in boq["errors"] if e.get("coverage")]
+    assert cov == []

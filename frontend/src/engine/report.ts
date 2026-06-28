@@ -84,6 +84,14 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   const section = (title: string, head: string, body: string) =>
     body ? `<h2>${title}</h2><table><thead>${head}</thead><tbody>${body}</tbody></table>` : "";
 
+  // Coverage check — likely omissions, surfaced prominently in the report.
+  const coverage = (boq.errors || []).filter((e: any) => e.coverage);
+  const coverageHtml = coverage.length
+    ? `<h2>Coverage Check <span style="font-weight:400;font-size:11px;color:#5b6b80">(${coverage.length} possible omission(s) — review)</span></h2>
+       <ul style="font-size:12px;color:#9a6a00;background:#fff7e6;border:1px solid #f0d39a;border-radius:6px;padding:8px 8px 8px 26px;margin:0">` +
+      coverage.map((e: any) => `<li>${esc(e.error || "")}</li>`).join("") + `</ul>`
+    : "";
+
   // Material take-off as side-by-side mini tables.
   const matSections = materialTakeoff(boq);
   const matHtml = matSections.length
@@ -144,6 +152,8 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
     <tr><td>Grand total</td><td class="r grand">${esc(money(cur, total))}</td></tr>
     ${area ? `<tr><td>Cost / m² built-up</td><td class="r">${esc(money(cur, total / area))}</td></tr>` : ""}
   </table></div>
+
+  ${coverageHtml}
 
   <h2>Detailed Bill of Quantities</h2>
   <table><thead><tr><th>#</th><th>Description</th><th class="r">No.</th><th class="r">Qty</th>

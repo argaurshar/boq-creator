@@ -131,8 +131,47 @@ def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
         groups.append({"category": cat, "label": label,
                        "items": items, "subtotal": subtotal})
 
+    # Coverage check: deterministic completeness hints. The AI extractor often
+    # reads only part of a multi-sheet drawing set (e.g. footings but not the
+    # column layout), and the BOQ would otherwise under-report silently. These
+    # notes never change quantities — they only flag likely omissions. Mirrors
+    # the TS engine.
+    errors = cat_groups.get("_errors", [])
+    has_formwork = bool(cat_groups.get("formwork"))
+    for note in coverage_notes([mem for _, mem in kept], has_formwork):
+        errors.append({"warning": True, "coverage": True, "error": note})
+
     return {
         "groups": groups,
         "grand_total": round(grand_total, 2),
-        "errors": cat_groups.get("_errors", []),
+        "errors": errors,
     }
+
+
+def coverage_notes(members: list[Member], has_formwork: bool) -> list[str]:
+    """Likely-omission hints from the set of captured members. Conservative:
+    each rule fires only on a clear structural inconsistency. Mirrors the TS
+    engine's coverageNotes()."""
+    def n(t: str) -> int:
+        return sum(1 for m in members if m.member_type == t)
+
+    footings, columns, beams, pccs = n("footing"), n("column"), n("beam"), n("pcc")
+    rcc_concrete = footings + columns + beams + n("slab") + n("rcc_wall")
+    notes: list[str] = []
+
+    if footings > 0 and columns == 0:
+        notes.append(f"{footings} footing(s) but no columns were captured — "
+                     "check the column layout / schedule sheet was read.")
+    if columns > 0 and footings == 0:
+        notes.append(f"{columns} column(s) but no footings/foundations were captured — "
+                     "check the foundation plan was read.")
+    if footings > 0 and pccs == 0:
+        notes.append("Footings have no PCC / lean-concrete layer below them — "
+                     "IS practice places lean concrete under every footing.")
+    if rcc_concrete > 0 and not has_formwork:
+        notes.append("RCC concrete is present but no formwork / shuttering is being counted.")
+    if (footings > 0 or columns > 0) and beams == 0:
+        notes.append("Footings/columns but no tie/plinth or grade beams — foundations "
+                     "are usually tied together with plinth/tie beams.")
+
+    return notes

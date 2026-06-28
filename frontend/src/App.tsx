@@ -1115,18 +1115,39 @@ function CenterPanel({
                   rates) to see the cost. Currency: {currency}.
                 </div>
               )}
-              {boq.errors && boq.errors.length > 0 && (
-                <details className="bs-warnings">
-                  <summary>
-                    ⚠ {boq.errors.length} note(s) — review (e.g. duplicate steel removed, unresolved items)
-                  </summary>
-                  <ul>
-                    {boq.errors.map((e: any, i: number) => (
-                      <li key={i}>{e.label ? `${e.label}: ` : ""}{e.error}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
+              {(() => {
+                const all: any[] = boq.errors || [];
+                const coverage = all.filter((e) => e.coverage);
+                const other = all.filter((e) => !e.coverage);
+                return (
+                  <>
+                    {coverage.length > 0 && (
+                      <details className="bs-coverage" open>
+                        <summary>
+                          🔍 Coverage check — {coverage.length} possible omission(s)
+                        </summary>
+                        <ul>
+                          {coverage.map((e: any, i: number) => (
+                            <li key={i}>{e.error}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    {other.length > 0 && (
+                      <details className="bs-warnings">
+                        <summary>
+                          ⚠ {other.length} note(s) — review (e.g. duplicate steel removed, unresolved items)
+                        </summary>
+                        <ul>
+                          {other.map((e: any, i: number) => (
+                            <li key={i}>{e.label ? `${e.label}: ` : ""}{e.error}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </>
+                );
+              })()}
               <div className="bs-chips">
                 {boq.groups.map((g) => {
                   const st = subtotalOf(g.items);
