@@ -421,7 +421,16 @@ function LeftPanel({
       );
       setStaged([]);
     } catch (e: any) {
-      setBusy("Error: " + (e.message || e));
+      const msg = String(e?.message || e);
+      if (/failed to fetch|load failed|dynamically imported module/i.test(msg)) {
+        setBusy(
+          "Couldn't reach a resource. If the app was just updated, hard-refresh " +
+            "(Ctrl/Cmd-Shift-R) and try again. Otherwise check your 🔑 AI key and " +
+            "internet connection. (" + msg + ")"
+        );
+      } else {
+        setBusy("Error: " + msg);
+      }
     }
   };
 
