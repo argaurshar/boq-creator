@@ -374,6 +374,12 @@ function LeftPanel({
     const list = staged;
     if (!list.length) return;
     try {
+      // A new upload always starts a fresh BOQ: wipe any earlier elements and
+      // AI suggestions before reading the newly uploaded drawings.
+      setBusy("Starting a fresh BOQ — clearing earlier entries…");
+      await api.clearMembers(pid);
+      setReviews([]);
+      onChange();
       let total = 0, rejected = 0, unresolved = 0;
       const allReviews: any[] = [];
       for (let i = 0; i < list.length; i++) {
@@ -468,7 +474,9 @@ function LeftPanel({
           )}
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
           <div style={{ marginTop: 8 }} className="muted small">
-            Select your PDFs, then press <strong>Proceed</strong>. Drawings are
+            Select your PDFs, then press <strong>Proceed</strong>. Each run
+            starts a <strong>fresh BOQ</strong> — any earlier elements are
+            cleared so a new upload never mixes with old entries. Drawings are
             read in your browser and sent page-by-page to Claude with your{" "}
             <strong>🔑 AI key</strong> (top right) to take off every quantity it
             can read — concrete, RCC/PCC, reinforcement, structural steel and

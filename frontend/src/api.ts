@@ -181,6 +181,16 @@ export const api = {
     return ok({ deleted: mid });
   },
 
+  // Wipe every element of a project. Used to start a fresh BOQ whenever a new
+  // set of drawings is uploaded, so a new upload never mixes with old entries.
+  clearMembers: (pid: number) => {
+    getProject(pid);
+    const removed = (store.members[pid] || []).length;
+    store.members[pid] = [];
+    save();
+    return ok({ cleared: removed });
+  },
+
   verifyMember: (mid: number) => {
     for (const pid of Object.keys(store.members)) {
       const m = store.members[Number(pid)].find((x) => x.id === mid);
