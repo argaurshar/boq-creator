@@ -81,7 +81,9 @@ millimetres, exactly as read. Every member carries: label, count, confidence
 FOUNDATIONS — capture all three layers separately, never merge them: the RCC
 footing pad as a `footing` (its own concrete + bottom mesh), the lean concrete
 below it as a separate `pcc`, and the excavation as an `earthwork_pit`. Do NOT
-record a footing pad as a `slab`.
+record a footing pad as a `slab`. EVERY footing sits on lean concrete — if a
+section shows "P.C.C." / "lean concrete" below the pad (e.g. 4" thk 1:4:8),
+emit a matching `pcc` for it; never output a footing with no PCC beneath it.
 
 PURLINS — capture each purlin run as a `steel_member` (designation + length +
 count). Capture holding-down bolts as `anchor_bolt`, roof/wall cladding as
@@ -100,6 +102,27 @@ REAL COUNTS — a column/footing schedule lists TYPES (C1, C2, C3…). Count the
 PHYSICAL members drawn in the plan and set `count` accordingly; do not emit one of
 every type. Two 18"x18" types on a 2-column portal are usually the SAME two
 columns — don't list them twice.
+
+MULTI-SHEET SETS — a structural/foundation package is usually SEVERAL sheets: a
+FOUNDATION PLAN, a COLUMN LAYOUT PLAN, SECTION/DETAIL sheets, and SCHEDULES. Read
+EVERY page you are given and combine them — do NOT stop at the footings on the
+foundation plan. In particular:
+  • COLUMNS — emit every column. Take the column SIZE and reinforcement (main bars
+    + ties) from the COLUMN SCHEDULE (e.g. "C1 24"x30", 18-25Ø, ties 10Ø@…"), and
+    the column COUNT by counting the marks physically placed on the COLUMN LAYOUT
+    grid (not the number of schedule types). A multi-storey schedule
+    (foundation→basement→ground→…) shows bar curtailment; use the full height for
+    the level being quantified. A column layout with marks at most grid
+    intersections must produce many `column` members.
+  • TIE / PLINTH / GRADE BEAMS — the grid of beams tying footings/columns together
+    (marked TB, PB, GB, FB, "tie beam", "plinth beam") is a MAJOR item. Capture
+    EVERY run as a `beam` with its section (e.g. 12"x18") and clear span between
+    supports, taking the section from the beam detail/schedule. A foundation plan
+    criss-crossed with tie beams must produce many `beam` members — do not skip them.
+  • FOUNDATION / GRADE BEAMS (e.g. FB1 34"x36") and LIFT / SUMP RCC walls and the
+    BASEMENT floor slab shown on the detail sheets — capture as `beam`, `rcc_wall`
+    and `slab` respectively; do not omit them just because they are on a section
+    sheet rather than the plan.
 
 PLATES — give a full plan size in mm (L×W×t); a thickness alone ("12 THK") cannot
 be weighed.
