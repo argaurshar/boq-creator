@@ -1029,6 +1029,32 @@ const QTY = (n: number) =>
 const INR0 = (n: number) =>
   "₹" + Math.round(n).toLocaleString("en-IN");
 
+// Count the headline estimate up to its value — the one orchestrated "moment".
+// Own component so it has its own hooks (unaffected by CenterPanel's early
+// return); honours prefers-reduced-motion by jumping straight to the value.
+function AnimatedAmount({ value, format }: { value: number; format: (n: number) => string }) {
+  const [shown, setShown] = useState(value);
+  const fromRef = useRef(value);
+  useEffect(() => {
+    const from = fromRef.current;
+    const to = value;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce || from === to) { setShown(to); fromRef.current = to; return; }
+    let raf = 0; let start: number | null = null; const dur = 600;
+    const tick = (t: number) => {
+      if (start === null) start = t;
+      const p = Math.min(1, (t - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setShown(from + (to - from) * eased);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else fromRef.current = to;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{format(shown)}</>;
+}
+
 function CenterPanel({
   pid, boq, rates, currency, onChange,
 }: {
@@ -1121,7 +1147,7 @@ function CenterPanel({
               <div className="bs-head">
                 <div>
                   <div className="bs-label">Tentative estimate</div>
-                  <div className="bs-total">{INR0(tentative)}</div>
+                  <div className="bs-total"><AnimatedAmount value={tentative} format={INR0} /></div>
                   <div className="bs-sub">
                     {boq.groups.length} categories · {allItems.length} items ·{" "}
                     {needReview > 0
@@ -1181,7 +1207,7 @@ function CenterPanel({
                   </>
                 );
               })()}
-              <div className="bs-chips">
+              <div className="bs-chips draw">
                 {boq.groups.map((g) => {
                   const st = subtotalOf(g.items);
                   const share = grand > 0 ? (st / grand) * 100 : 0;
