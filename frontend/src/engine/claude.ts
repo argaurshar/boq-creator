@@ -18,6 +18,19 @@ function stripFences(text: string): string {
   return t.trim();
 }
 
+// Map an Anthropic HTTP error to a short, actionable message. The raw API JSON
+// (e.g. {"type":"authentication_error","message":"invalid x-api-key"}) is
+// confusing to end users, so common statuses get plain-language guidance.
+function friendlyApiError(status: number, body: string): string {
+  if (status === 401 || status === 403)
+    return "Your Anthropic API key looks invalid or unauthorized. Open 🔑 (top right) and paste a valid key (it starts with 'sk-ant-…').";
+  if (status === 429)
+    return "Anthropic rate limit reached — wait a few seconds and try again.";
+  if (status === 402)
+    return "Your Anthropic account is out of credits — add billing/credits in the Anthropic console, then retry.";
+  return `Anthropic API ${status}: ${body.slice(0, 200)}`;
+}
+
 async function jsonCall(
   system: string,
   content: Content,
@@ -47,7 +60,7 @@ async function jsonCall(
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Anthropic API ${res.status}: ${body.slice(0, 300)}`);
+      throw new Error(friendlyApiError(res.status, body));
     }
     const data = await res.json();
     const text = (data.content || [])
