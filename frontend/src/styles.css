@@ -173,15 +173,19 @@ a.btnlink.accent { background: var(--accent2); border-color: var(--accent2);
 a.btnlink:hover { filter: brightness(1.1); }
 
 /* ===================== Interactive BOQ ===================== */
-/* category accent colours */
-.cat-earthwork { --c: #a3754b; }
-.cat-concrete  { --c: #6b7280; }
-.cat-formwork  { --c: #b08968; }
-.cat-rebar     { --c: #ef9a3d; }
-.cat-steel     { --c: #60a5fa; }
-.cat-masonry   { --c: #e06c54; }
-.cat-plaster   { --c: #c084fc; }
-.cat-roofing   { --c: #2dd4bf; }
+/* Category accent colours — validated with the dataviz palette checker
+   (dark surface #0f1b2e: lightness band, chroma, 3:1 contrast all PASS;
+   CVD floor band covered by segment gaps + direct labels + named chips).
+   Semantic: earth=amber, concrete=blue, formwork=timber orange, rebar=magenta,
+   steel=violet, masonry=brick red, plaster=aqua, roofing=green. */
+.cat-earthwork { --c: #c98500; }
+.cat-concrete  { --c: #3987e5; }
+.cat-formwork  { --c: #d95926; }
+.cat-rebar     { --c: #d55181; }
+.cat-steel     { --c: #9085e9; }
+.cat-masonry   { --c: #e66767; }
+.cat-plaster   { --c: #199e70; }
+.cat-roofing   { --c: #008300; }
 
 /* Signature: the estimate summary is a drafting title block */
 .boq-summary { position: relative; margin: 16px 0 14px; padding: 18px 20px;
@@ -210,13 +214,18 @@ a.btnlink:hover { filter: brightness(1.1); }
 .bs-hint { margin-top: 10px; font-size: 12px; color: var(--warn);
   background: #3b2f0b55; border: 1px solid #5a4a1a; border-radius: 6px; padding: 6px 10px; }
 
-.bs-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.bs-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .bs-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
   background: var(--panel); border: 1px solid var(--line);
   border-left: 3px solid var(--c, var(--accent)); border-radius: 8px;
-  padding: 7px 10px; min-width: 116px; cursor: pointer; text-align: left; }
-.bs-chip:hover { filter: brightness(1.12); }
-.bs-chip .chip-name { font-size: 11px; color: var(--muted); }
+  padding: 7px 10px; min-width: 116px; cursor: pointer; text-align: left;
+  transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease; }
+.bs-chip:hover { transform: translateY(-2px); border-color: var(--c, var(--accent));
+  box-shadow: 0 6px 18px rgba(2,8,20,.45); }
+.bs-chip .chip-name { font-size: 11px; color: var(--muted); display: flex;
+  align-items: center; gap: 5px; }
+.bs-chip .chip-name::before { content: ""; width: 7px; height: 7px; flex: none;
+  border-radius: 2px; background: var(--c, var(--accent)); }
 .bs-chip .chip-amt { font-size: 14px; font-weight: 600; color: var(--text);
   font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 .bs-chip .chip-bar { width: 100%; height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
@@ -306,6 +315,112 @@ a.btnlink:hover { filter: brightness(1.1); }
   font-variant-numeric: tabular-nums; }
 .mattable td.unit { color: var(--muted); width: 38px; }
 
+/* ===================== Cost composition bar (infographic) ===================== */
+/* Part-to-whole as a horizontal 100% stacked bar: 2px surface gaps between
+   segments, rounded ends, selective direct labels, hover tooltip per segment.
+   The chips below are the always-present legend (identity is never color-alone). */
+.comp-wrap { margin-top: 14px; }
+.comp-cap { display: flex; justify-content: space-between; font-size: 10px;
+  color: var(--muted); font-family: var(--font-mono); text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 5px; }
+.comp-bar { display: flex; gap: 2px; height: 30px; width: 100%; }
+.comp-seg { position: relative; border: none; padding: 0; min-width: 6px;
+  background: var(--c, var(--accent)); cursor: pointer;
+  transform-origin: left center; animation: segGrow .55s cubic-bezier(.22,.61,.36,1) both;
+  transition: filter .12s ease, transform .12s ease; border-radius: 2px; }
+.comp-seg:first-child { border-radius: 6px 2px 2px 6px; }
+.comp-seg:last-child { border-radius: 2px 6px 6px 2px; }
+.comp-seg:hover { filter: brightness(1.18); transform: scaleY(1.12); z-index: 2; }
+.comp-seg .seg-label { position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; pointer-events: none;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: #071018; text-shadow: 0 1px 0 rgba(255,255,255,.18);
+  animation: fadeIn .3s .5s both; }
+.comp-seg .seg-tip { position: absolute; bottom: calc(100% + 9px); left: 50%;
+  transform: translateX(-50%) translateY(3px); white-space: nowrap;
+  background: #0c1728; border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 9px; font-size: 12px; color: var(--text); pointer-events: none;
+  opacity: 0; transition: opacity .12s ease, transform .12s ease;
+  box-shadow: 0 8px 22px rgba(2,8,20,.55); z-index: 5; }
+.comp-seg .seg-tip b { color: var(--c, var(--accent)); font-weight: 600; }
+.comp-seg .seg-tip .tip-num { font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums; }
+.comp-seg:hover .seg-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+.comp-seg:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.comp-seg:focus-visible .seg-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ===================== Material KPI tiles ===================== */
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px; margin: 12px 0 4px; }
+.kpi { background: linear-gradient(180deg, #14263f, #101d31);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  animation: fadeUp .4s ease both;
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease; }
+.kpi:hover { transform: translateY(-2px); border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(2,8,20,.45); }
+.kpi .kpi-ico { font-size: 17px; line-height: 1; }
+.kpi .kpi-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 19px; font-weight: 600; color: var(--text); margin-top: 5px;
+  line-height: 1.1; }
+.kpi .kpi-val small { font-size: 11px; color: var(--muted); font-weight: 400;
+  margin-left: 3px; }
+.kpi .kpi-name { font-size: 10.5px; color: var(--muted); margin-top: 2px;
+  letter-spacing: .3px; }
+
+/* ===================== Extraction progress tracker ===================== */
+.xtrack { margin-top: 10px; }
+.xsteps { display: flex; align-items: center; gap: 4px; }
+.xstep { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+.xstep .xico { width: 30px; height: 30px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+  background: var(--panel2); border: 1.5px solid var(--line); transition: all .2s ease; }
+.xstep .xname { font-size: 10.5px; color: var(--muted); letter-spacing: .3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xstep.active .xico { border-color: var(--accent);
+  box-shadow: 0 0 0 0 rgba(56,189,248,.5); animation: stepPulse 1.4s ease-out infinite; }
+.xstep.active .xname { color: var(--accent); font-weight: 600; }
+.xstep.done .xico { border-color: var(--good); background: rgba(53,214,164,.12); }
+.xstep.done .xname { color: var(--good); }
+.xconn { height: 2px; flex: 0 0 14px; background: var(--line); border-radius: 2px; }
+.xconn.done { background: var(--good); }
+.xbar { margin-top: 9px; height: 4px; border-radius: 3px; overflow: hidden;
+  background: var(--panel2); }
+.xbar i { display: block; height: 100%; width: 40%; border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: shimmer 1.3s ease-in-out infinite; }
+
+/* ===================== Onboarding empty state ===================== */
+.onboard { max-width: 720px; margin: 40px auto 0; padding: 0 16px; text-align: center; }
+.onboard h3 { font-size: 20px; font-weight: 700; margin: 0 0 6px; color: var(--text); }
+.onboard .ob-sub { color: var(--muted); font-size: 13px; margin-bottom: 26px; }
+.ob-steps { display: flex; align-items: stretch; gap: 10px; text-align: left; }
+.ob-step { flex: 1; background: linear-gradient(180deg, #14263f, #101d31);
+  border: 1px solid var(--line); border-radius: 10px; padding: 16px 15px;
+  animation: fadeUp .5s ease both; position: relative;
+  transition: transform .15s ease, border-color .15s ease; }
+.ob-step:hover { transform: translateY(-3px); border-color: var(--accent); }
+.ob-step .ob-num { position: absolute; top: 10px; right: 12px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--accent);
+  border: 1px solid var(--accent); border-radius: 999px; padding: 0 7px; opacity: .8; }
+.ob-step .ob-ico { font-size: 26px; line-height: 1; }
+.ob-step .ob-title { font-weight: 700; font-size: 13.5px; margin: 10px 0 4px; }
+.ob-step .ob-desc { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.ob-arrow { align-self: center; color: var(--accent); font-size: 16px; opacity: .7;
+  flex: none; }
+.onboard .ob-cta { margin-top: 24px; font-size: 12.5px; color: var(--muted); }
+.onboard .ob-cta b { color: var(--accent2); }
+
+/* ===================== Motion ===================== */
+@keyframes segGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); } }
+@keyframes stepPulse {
+  0% { box-shadow: 0 0 0 0 rgba(56,189,248,.45); }
+  70% { box-shadow: 0 0 0 9px rgba(56,189,248,0); }
+  100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } }
+@keyframes shimmer { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+
 /* ===================== Mobile / small screens ===================== */
 @media (max-width: 900px) {
   /* Topbar wraps to multiple rows; drop the tagline, keep controls tappable */
@@ -346,6 +461,10 @@ a.btnlink:hover { filter: brightness(1.1); }
   /* Modals fit the viewport */
   .modal { width: 92vw !important; padding: 16px; }
   .ffgrid { grid-template-columns: 1fr 1fr; }
+
+  /* Onboarding steps stack vertically */
+  .ob-steps { flex-direction: column; }
+  .ob-arrow { transform: rotate(90deg); }
 }
 
 @media (max-width: 420px) {

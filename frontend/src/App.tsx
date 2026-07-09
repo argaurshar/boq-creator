@@ -497,16 +497,39 @@ function LeftPanel({
               </button>
             </div>
           )}
+          {running && (() => {
+            // Animated stage tracker parsed from the progress message.
+            const stage = /re-checking/i.test(busy) ? 2
+              : /with ai|double-checking/i.test(busy) ? 1 : 0;
+            const steps = [
+              { ico: "📄", name: "Render pages" },
+              { ico: "🧠", name: "AI take-off" },
+              { ico: "🔍", name: "Re-check" },
+            ];
+            return (
+              <div className="xtrack">
+                <div className="xsteps">
+                  {steps.map((s, i) => (
+                    <Fragment key={s.name}>
+                      {i > 0 && <span className={"xconn" + (i <= stage ? " done" : "")} />}
+                      <span className={"xstep" + (i < stage ? " done" : i === stage ? " active" : "")}>
+                        <span className="xico">{i < stage ? "✓" : s.ico}</span>
+                        <span className="xname">{s.name}</span>
+                      </span>
+                    </Fragment>
+                  ))}
+                </div>
+                <div className="xbar"><i /></div>
+              </div>
+            );
+          })()}
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
           <div style={{ marginTop: 8 }} className="muted small">
-            Select your PDFs, then press <strong>Proceed</strong>. Each run
-            starts a <strong>fresh BOQ</strong> — any earlier elements are
-            cleared so a new upload never mixes with old entries. Drawings are
-            read in your browser and sent page-by-page to Claude with your{" "}
-            <strong>🔑 AI key</strong> (top right) to take off every quantity it
-            can read — concrete, RCC/PCC, reinforcement, structural steel and
-            more. Extracted elements are marked <em>review</em>; edit any of them
-            below before exporting. No key? Use the chat or manual form below.
+            Pick your PDFs, press <strong>Proceed</strong>, and the take-off
+            happens right here in your browser — Claude reads every sheet with
+            your <strong>🔑 AI key</strong> (top right) and each run starts a
+            fresh BOQ. Anything it extracts is marked <em>review</em> so you
+            stay in control. No key? Use the chat or the manual form below.
           </div>
           <div style={{ marginTop: 10 }} className="muted small">
             No drawing handy?
@@ -1129,16 +1152,46 @@ function CenterPanel({
   const ratesSet = boq.groups.filter((g) => rateFor(g.category) > 0).length;
   const rowKey = (g: string, i: number) => `${g}-${i}`;
 
+  // Expand + scroll to a category — used by the composition bar and the chips.
+  const jumpToCat = (cat: string) => {
+    setCollapsed((p) => { const n = new Set(p); n.delete(cat); return n; });
+    document.getElementById(`cat-${cat}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div className="col center">
       <h2>Bill of Quantities</h2>
       <div className="scroll">
         {boq.groups.length === 0 ? (
-          <div className="empty">
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
-            No quantities yet. Upload a drawing and press <strong>Proceed</strong>,
-            add an element manually on the left, or describe one in the chat
-            (e.g. <em>"add 5 columns 300x600 3m high with 8-16mm bars"</em>).
+          <div className="onboard">
+            <h3>Let's build your Bill of Quantities</h3>
+            <div className="ob-sub">Three steps from drawing to costed BOQ — no spreadsheets needed.</div>
+            <div className="ob-steps">
+              <div className="ob-step" style={{ animationDelay: "0ms" }}>
+                <span className="ob-num">01</span>
+                <div className="ob-ico">📐</div>
+                <div className="ob-title">Upload your drawings</div>
+                <div className="ob-desc">Drop the structural PDFs in the left panel — plans, sections, schedules, the whole set.</div>
+              </div>
+              <div className="ob-arrow">➜</div>
+              <div className="ob-step" style={{ animationDelay: "120ms" }}>
+                <span className="ob-num">02</span>
+                <div className="ob-ico">🤖</div>
+                <div className="ob-title">AI reads every sheet</div>
+                <div className="ob-desc">Press <strong>Proceed</strong> and Claude takes off every column, footing, beam and bar — then double-checks its own work.</div>
+              </div>
+              <div className="ob-arrow">➜</div>
+              <div className="ob-step" style={{ animationDelay: "240ms" }}>
+                <span className="ob-num">03</span>
+                <div className="ob-ico">📊</div>
+                <div className="ob-title">Review, price &amp; export</div>
+                <div className="ob-desc">Tweak any element, set your rates, and export a tender-ready Excel or printable report.</div>
+              </div>
+            </div>
+            <div className="ob-cta">
+              No drawing handy? Hit <b>Load demo data</b> on the left — or just tell the
+              chat <em>"add 5 columns 300×600, 3 m high with 8-16 mm bars"</em>.
+            </div>
           </div>
         ) : (
           <>
@@ -1207,6 +1260,38 @@ function CenterPanel({
                   </>
                 );
               })()}
+              {/* Where the money goes — 100% stacked composition bar. Chips
+                  below are the legend, so identity is never colour-alone. */}
+              {grand > 0 && (
+                <div className="comp-wrap">
+                  <div className="comp-cap">
+                    <span>Where the money goes</span>
+                    <span>100% = {INR0(grand)}</span>
+                  </div>
+                  <div className="comp-bar">
+                    {boq.groups.map((g, i) => {
+                      const st = subtotalOf(g.items);
+                      const share = (st / grand) * 100;
+                      if (share <= 0) return null;
+                      return (
+                        <button
+                          key={g.category}
+                          className={`comp-seg cat-${g.category}`}
+                          style={{ width: `${share}%`, animationDelay: `${i * 70}ms` }}
+                          aria-label={`${g.label}: ${INR0(st)} (${share.toFixed(1)}%)`}
+                          onClick={() => jumpToCat(g.category)}
+                        >
+                          {share >= 14 && <span className="seg-label">{share.toFixed(0)}%</span>}
+                          <span className="seg-tip">
+                            <b>{g.label}</b>{" "}
+                            <span className="tip-num">{INR0(st)} · {share.toFixed(1)}%</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="bs-chips draw">
                 {boq.groups.map((g) => {
                   const st = subtotalOf(g.items);
@@ -1216,10 +1301,7 @@ function CenterPanel({
                       key={g.category}
                       className={`bs-chip cat-${g.category}`}
                       title={`${g.label}: ${INR0(st)} (${share.toFixed(0)}%)`}
-                      onClick={() => {
-                        setCollapsed((p) => { const n = new Set(p); n.delete(g.category); return n; });
-                        document.getElementById(`cat-${g.category}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }}
+                      onClick={() => jumpToCat(g.category)}
                     >
                       <span className="chip-name">{g.label}</span>
                       <span className="chip-amt">{INR0(st)}</span>
@@ -1307,9 +1389,40 @@ function CenterPanel({
             {(() => {
               const takeoff = materialTakeoff(boq);
               if (!takeoff.length) return null;
+              // Headline procurement numbers as a KPI row of stat tiles; the
+              // detailed tables below stay as the full data view.
+              const rows = takeoff.flatMap((s) => s.rows);
+              const find = (pfx: string) => rows.find((r) => r.material.startsWith(pfx));
+              const kpis = [
+                { icon: "🧱", name: "Cement", row: find("Cement"), unit: "bags" },
+                { icon: "🔩", name: "Reinforcement", row: find("Total reinforcement"),
+                  unit: "MT", scale: 1 / 1000, digits: 2 },
+                { icon: "🏗️", name: "Structural steel", row: find("MS sections"),
+                  unit: "MT", scale: 1 / 1000, digits: 2 },
+                { icon: "🧊", name: "Bricks", row: find("Bricks") },
+                { icon: "🪚", name: "Formwork", row: find("Formwork") },
+                { icon: "⛏️", name: "Excavation", row: find("Excavation") },
+              ].filter((k) => k.row && k.row.qty > 0);
               return (
                 <details className="matsum" open>
                   <summary>📦 Material summary <span className="muted small">(indicative — verify mixes)</span></summary>
+                  {kpis.length > 0 && (
+                    <div className="kpi-row">
+                      {kpis.map((k, i) => {
+                        const v = k.row!.qty * (k.scale ?? 1);
+                        const num = v.toLocaleString("en-IN", {
+                          maximumFractionDigits: k.digits ?? (v >= 100 ? 0 : 1),
+                        });
+                        return (
+                          <div className="kpi" key={k.name} style={{ animationDelay: `${i * 60}ms` }}>
+                            <div className="kpi-ico">{k.icon}</div>
+                            <div className="kpi-val">{num}<small>{k.unit ?? k.row!.unit}</small></div>
+                            <div className="kpi-name">{k.name}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="matsum-body">
                     {takeoff.map((sec) => (
                       <div className="matsec" key={sec.title}>
