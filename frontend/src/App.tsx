@@ -525,17 +525,19 @@ function LeftPanel({
           })()}
           {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
           <div style={{ marginTop: 8 }} className="muted small">
-            Pick your PDFs, press <strong>Proceed</strong>, and the take-off
-            happens right here in your browser — Claude reads every sheet with
-            your <strong>🔑 AI key</strong> (top right) and each run starts a
-            fresh BOQ. Anything it extracts is marked <em>review</em> so you
-            stay in control. No key? Use the chat or the manual form below.
+            Pick your PDFs, press <strong>Proceed</strong> — done.
           </div>
-          <div style={{ marginTop: 10 }} className="muted small">
-            No drawing handy?
-          </div>
+          <details className="howit">
+            <summary>How it works</summary>
+            <div className="muted small">
+              Claude reads every sheet in your browser with your <strong>🔑 AI
+              key</strong> (top right); each run starts a fresh BOQ, and every
+              extracted element is marked <em>review</em> so you stay in
+              control. No key? Use the chat or the manual form below.
+            </div>
+          </details>
           <button
-            style={{ marginTop: 4 }}
+            style={{ marginTop: 8 }}
             onClick={async () => {
               setBusy("Loading demo data…");
               try {
@@ -1022,9 +1024,23 @@ function MemberForm({
 }
 
 function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
+  // Collapsed by default — a dozen always-visible inputs was noise for the
+  // common (upload/chat) paths.
+  const [openForm, setOpenForm] = useState(false);
+  if (!openForm) {
+    return (
+      <button className="addel-toggle" onClick={() => setOpenForm(true)}>
+        ＋ Add element manually
+      </button>
+    );
+  }
   return (
     <div className="card">
-      <label className="field">Add element manually</label>
+      <div className="row">
+        <label className="field" style={{ margin: 0 }}>Add element manually</label>
+        <div className="spacer" />
+        <button className="link" onClick={() => setOpenForm(false)}>✕ close</button>
+      </div>
       <MemberForm
         initialType="column"
         initialVals={defaultsFor("column")}
@@ -1078,6 +1094,93 @@ function AnimatedAmount({ value, format }: { value: number; format: (n: number) 
   return <>{format(shown)}</>;
 }
 
+// Cost-share donut (the "pie"). At most 5 slices + an "Other" fold so it stays
+// readable; hovering a slice swaps the centre label to that slice's details;
+// clicking jumps to the category in the Line items tab. Pure SVG, arcs drawn
+// with stroke-dasharray; colours come from the validated .cat-* variables.
+function DonutChart({ data, total, onSlice }: {
+  data: { cat: string; label: string; value: number }[];
+  total: number;
+  onSlice: (cat: string) => void;
+}) {
+  const [hov, setHov] = useState<number | null>(null);
+  const R = 74, C = 2 * Math.PI * R, GAP = 3;
+  let acc = 0;
+  const arcs = data.map((d, i) => {
+    const frac = d.value / total;
+    const a = { ...d, i, frac, start: acc };
+    acc += frac;
+    return a;
+  });
+  const h = hov !== null ? arcs[hov] : null;
+  return (
+    <div className="card donut-card">
+      <div className="viz-title">Cost split</div>
+      <div className="donut-wrap">
+        <svg viewBox="0 0 200 200" className="donut" role="img" aria-label="Cost share by category">
+          <g transform="rotate(-90 100 100)">
+            {arcs.map((a) => (
+              <circle
+                key={a.cat}
+                className={`donut-arc cat-${a.cat}`}
+                cx="100" cy="100" r={R} fill="none"
+                strokeWidth={hov === a.i ? 30 : 24}
+                strokeDasharray={`${Math.max(a.frac * C - GAP, 0.6)} ${C}`}
+                strokeDashoffset={-(a.start * C) - GAP / 2}
+                onMouseEnter={() => setHov(a.i)}
+                onMouseLeave={() => setHov(null)}
+                onClick={() => onSlice(a.cat === "other" ? "" : a.cat)}
+              >
+                <title>{`${a.label}: ${INR0(a.value)} (${(a.frac * 100).toFixed(1)}%)`}</title>
+              </circle>
+            ))}
+          </g>
+          {arcs.filter((a) => a.frac >= 0.09).map((a) => {
+            const mid = (a.start + a.frac / 2) * 2 * Math.PI - Math.PI / 2;
+            const x = 100 + Math.cos(mid) * R;
+            const y = 100 + Math.sin(mid) * R;
+            return (
+              <text key={a.cat} x={x} y={y} className="donut-pct">
+                {Math.round(a.frac * 100)}%
+              </text>
+            );
+          })}
+        </svg>
+        <div className="donut-center">
+          <div className="dc-name">{h ? h.label : "Total"}</div>
+          <div className="dc-val">{INR0(h ? h.value : total)}</div>
+          <div className="dc-sub">{h ? `${(h.frac * 100).toFixed(1)}%` : `${data.length} slices`}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Top cost drivers — the five costliest line items as horizontal bars.
+function TopItems({ rows, onJump }: {
+  rows: { label: string; cat: string; amt: number }[];
+  onJump: (cat: string) => void;
+}) {
+  if (!rows.length) return null;
+  const max = rows[0].amt || 1;
+  return (
+    <div className="card ti-card">
+      <div className="viz-title">Top cost drivers</div>
+      {rows.map((r, i) => (
+        <button key={i} className={`ti-row cat-${r.cat}`} onClick={() => onJump(r.cat)} title={r.label}>
+          <span className="ti-top">
+            <span className="ti-name">{r.label}</span>
+            <span className="ti-amt">{INR0(r.amt)}</span>
+          </span>
+          <span className="ti-track">
+            <i className="ti-bar" style={{ width: `${(r.amt / max) * 100}%`, animationDelay: `${i * 80}ms` }} />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function CenterPanel({
   pid, boq, rates, currency, onChange,
 }: {
@@ -1092,6 +1195,7 @@ function CenterPanel({
   const [search, setSearch] = useState("");
   const [reviewOnly, setReviewOnly] = useState(false);
   const [contingency, setContingency] = useState("0");
+  const [centerTab, setCenterTab] = useState<"overview" | "items">("overview");
   const [localRates, setLocalRates] = useState<Record<string, number>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -1152,11 +1256,32 @@ function CenterPanel({
   const ratesSet = boq.groups.filter((g) => rateFor(g.category) > 0).length;
   const rowKey = (g: string, i: number) => `${g}-${i}`;
 
-  // Expand + scroll to a category — used by the composition bar and the chips.
+  // Switch to Line items, expand + scroll to a category — used by the donut,
+  // composition bar, top-drivers list and chips. Scroll waits a tick so the
+  // table exists when coming from the Overview tab.
   const jumpToCat = (cat: string) => {
+    setCenterTab("items");
+    if (!cat) return;
     setCollapsed((p) => { const n = new Set(p); n.delete(cat); return n; });
-    document.getElementById(`cat-${cat}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => {
+      document.getElementById(`cat-${cat}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
   };
+
+  // Donut data: top 5 categories by cost + an "Other" fold (≤6 slices total).
+  const catAmts = boq.groups
+    .map((g) => ({ cat: g.category, label: g.label, value: subtotalOf(g.items) }))
+    .filter((s) => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const donutData = catAmts.length > 6
+    ? [...catAmts.slice(0, 5),
+       { cat: "other", label: "Other", value: catAmts.slice(5).reduce((s, r) => s + r.value, 0) }]
+    : catAmts;
+  const topRows = [...allItems]
+    .map((it) => ({ label: it.description, cat: it.category, amt: amountFor(it) }))
+    .filter((r) => r.amt > 0)
+    .sort((a, b) => b.amt - a.amt)
+    .slice(0, 5);
 
   return (
     <div className="col center">
@@ -1195,6 +1320,18 @@ function CenterPanel({
           </div>
         ) : (
           <>
+            {/* ---- Overview / Line-items switcher ---- */}
+            <div className="ctabs">
+              <button className={centerTab === "overview" ? "on" : ""} onClick={() => setCenterTab("overview")}>
+                📊 Overview
+              </button>
+              <button className={centerTab === "items" ? "on" : ""} onClick={() => setCenterTab("items")}>
+                📋 Line items <span className="ctab-count">{allItems.length}</span>
+              </button>
+            </div>
+
+            {centerTab === "overview" && (
+            <>
             {/* ---- Summary / tentative estimate ---- */}
             <div className="boq-summary">
               <div className="bs-head">
@@ -1202,11 +1339,9 @@ function CenterPanel({
                   <div className="bs-label">Tentative estimate</div>
                   <div className="bs-total"><AnimatedAmount value={tentative} format={INR0} /></div>
                   <div className="bs-sub">
-                    {boq.groups.length} categories · {allItems.length} items ·{" "}
-                    {needReview > 0
-                      ? <span className="bs-warn">{needReview} need review</span>
-                      : "all verified"}{" "}
-                    · rates set {ratesSet}/{boq.groups.length}
+                    {allItems.length} items in {boq.groups.length} categories
+                    {needReview > 0 && <> · <span className="bs-warn">{needReview} need review</span></>}
+                    {ratesSet < boq.groups.length && <> · rates set {ratesSet}/{boq.groups.length}</>}
                   </div>
                 </div>
                 <div className="bs-actions">
@@ -1234,7 +1369,7 @@ function CenterPanel({
                 return (
                   <>
                     {coverage.length > 0 && (
-                      <details className="bs-coverage" open>
+                      <details className="bs-coverage">
                         <summary>
                           🔍 Coverage check — {coverage.length} possible omission(s)
                         </summary>
@@ -1312,6 +1447,57 @@ function CenterPanel({
               </div>
             </div>
 
+            {/* ---- Charts: donut + top cost drivers ---- */}
+            {grand > 0 && (
+              <div className="viz-grid">
+                <DonutChart data={donutData} total={grand} onSlice={jumpToCat} />
+                <TopItems rows={topRows} onJump={jumpToCat} />
+              </div>
+            )}
+
+            {/* ---- Materials at a glance (KPI tiles) ---- */}
+            {(() => {
+              const takeoff = materialTakeoff(boq);
+              if (!takeoff.length) return null;
+              const rows = takeoff.flatMap((s) => s.rows);
+              const find = (pfx: string) => rows.find((r) => r.material.startsWith(pfx));
+              const kpis = [
+                { icon: "🧱", name: "Cement", row: find("Cement"), unit: "bags" },
+                { icon: "🔩", name: "Reinforcement", row: find("Total reinforcement"),
+                  unit: "MT", scale: 1 / 1000, digits: 2 },
+                { icon: "🏗️", name: "Structural steel", row: find("MS sections"),
+                  unit: "MT", scale: 1 / 1000, digits: 2 },
+                { icon: "🧊", name: "Bricks", row: find("Bricks") },
+                { icon: "🪚", name: "Formwork", row: find("Formwork") },
+                { icon: "⛏️", name: "Excavation", row: find("Excavation") },
+              ].filter((k) => k.row && k.row.qty > 0);
+              if (!kpis.length) return null;
+              return (
+                <div className="card">
+                  <div className="viz-title">Materials at a glance <span className="muted small">(indicative)</span></div>
+                  <div className="kpi-row">
+                    {kpis.map((k, i) => {
+                      const v = k.row!.qty * (k.scale ?? 1);
+                      const num = v.toLocaleString("en-IN", {
+                        maximumFractionDigits: k.digits ?? (v >= 100 ? 0 : 1),
+                      });
+                      return (
+                        <div className="kpi" key={k.name} style={{ animationDelay: `${i * 60}ms` }}>
+                          <div className="kpi-ico">{k.icon}</div>
+                          <div className="kpi-val">{num}<small>{k.unit ?? k.row!.unit}</small></div>
+                          <div className="kpi-name">{k.name}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+            </>
+            )}
+
+            {centerTab === "items" && (
+            <>
             {/* ---- Controls ---- */}
             <div className="boq-controls">
               <input className="boq-search" placeholder="🔍 Filter line items…"
@@ -1389,40 +1575,11 @@ function CenterPanel({
             {(() => {
               const takeoff = materialTakeoff(boq);
               if (!takeoff.length) return null;
-              // Headline procurement numbers as a KPI row of stat tiles; the
-              // detailed tables below stay as the full data view.
-              const rows = takeoff.flatMap((s) => s.rows);
-              const find = (pfx: string) => rows.find((r) => r.material.startsWith(pfx));
-              const kpis = [
-                { icon: "🧱", name: "Cement", row: find("Cement"), unit: "bags" },
-                { icon: "🔩", name: "Reinforcement", row: find("Total reinforcement"),
-                  unit: "MT", scale: 1 / 1000, digits: 2 },
-                { icon: "🏗️", name: "Structural steel", row: find("MS sections"),
-                  unit: "MT", scale: 1 / 1000, digits: 2 },
-                { icon: "🧊", name: "Bricks", row: find("Bricks") },
-                { icon: "🪚", name: "Formwork", row: find("Formwork") },
-                { icon: "⛏️", name: "Excavation", row: find("Excavation") },
-              ].filter((k) => k.row && k.row.qty > 0);
+              // Full material detail tables; the headline KPI tiles live on the
+              // Overview tab.
               return (
-                <details className="matsum" open>
-                  <summary>📦 Material summary <span className="muted small">(indicative — verify mixes)</span></summary>
-                  {kpis.length > 0 && (
-                    <div className="kpi-row">
-                      {kpis.map((k, i) => {
-                        const v = k.row!.qty * (k.scale ?? 1);
-                        const num = v.toLocaleString("en-IN", {
-                          maximumFractionDigits: k.digits ?? (v >= 100 ? 0 : 1),
-                        });
-                        return (
-                          <div className="kpi" key={k.name} style={{ animationDelay: `${i * 60}ms` }}>
-                            <div className="kpi-ico">{k.icon}</div>
-                            <div className="kpi-val">{num}<small>{k.unit ?? k.row!.unit}</small></div>
-                            <div className="kpi-name">{k.name}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                <details className="matsum">
+                  <summary>📦 Material detail <span className="muted small">(indicative — verify mixes)</span></summary>
                   <div className="matsum-body">
                     {takeoff.map((sec) => (
                       <div className="matsec" key={sec.title}>
@@ -1444,6 +1601,8 @@ function CenterPanel({
                 </details>
               );
             })()}
+            </>
+            )}
           </>
         )}
       </div>
@@ -1556,8 +1715,7 @@ function RightPanel({
       <div className="scroll">
         <div className="card">
           <div className="muted" style={{ marginBottom: 8 }}>
-            Describe an element in plain English. Review the proposed quantities,
-            then Apply.
+            Describe an element in plain English — review, then Apply.
           </div>
           {msgs.map((m, i) => (
             <div key={i} className={`chat-msg ${m.role}`}>
