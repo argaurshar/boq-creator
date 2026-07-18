@@ -18,6 +18,44 @@ import { materialTakeoff } from "./engine/takeoff";
 const INR = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
+// Visual identity for element cards: icon + the member's primary BOQ category
+// (drives the card's colour rail via the validated .cat-* palette).
+const TYPE_ICON: Record<string, string> = {
+  column: "🏛️", beam: "〰️", footing: "🦶", slab: "⬜", rcc_wall: "🧊",
+  pcc: "🪨", brick_wall: "🧱", plaster_surface: "🎨", earthwork_pit: "⛏️",
+  steel_member: "🔩", truss: "🔺", anchor_bolt: "⚓", roof_sheeting: "🏠",
+};
+const TYPE_CAT: Record<string, string> = {
+  column: "concrete", beam: "concrete", footing: "concrete", slab: "concrete",
+  rcc_wall: "concrete", pcc: "concrete", brick_wall: "masonry",
+  plaster_surface: "plaster", earthwork_pit: "earthwork",
+  steel_member: "steel", truss: "steel", anchor_bolt: "steel",
+  roof_sheeting: "roofing",
+};
+
+// One-line dimension summary (mm implied) so a card reads like a schedule row.
+function specOf(t: string, p: Record<string, any>): string {
+  const n = (v: any) => (v == null ? "?" : v);
+  const parts: string[] = [];
+  switch (t) {
+    case "column": parts.push(`${n(p.b_mm)}×${n(p.D_mm)}`, `H ${n(p.height_mm)}`); break;
+    case "beam": parts.push(`${n(p.b_mm)}×${n(p.depth_mm)}`, `L ${n(p.clear_span_mm)}`); break;
+    case "footing":
+    case "earthwork_pit": parts.push(`${n(p.length_mm)}×${n(p.breadth_mm)}`, `D ${n(p.depth_mm)}`); break;
+    case "slab":
+    case "pcc": parts.push(`${n(p.length_mm)}×${n(p.breadth_mm)}`, `t ${n(p.thickness_mm)}`); break;
+    case "rcc_wall":
+    case "brick_wall": parts.push(`L ${n(p.length_mm)}`, `H ${n(p.height_mm)}`, `t ${n(p.thickness_mm)}`); break;
+    case "plaster_surface": parts.push(`L ${n(p.length_mm)}`, `H ${n(p.height_mm)}`, `${n(p.faces ?? 1)} face`); break;
+    case "steel_member": parts.push(String(p.designation || ""), `L ${n(p.length_mm)}`); break;
+    case "truss": parts.push(`span ${n(p.span_mm)}`, `${(p.segments || []).length} segments`); break;
+    case "anchor_bolt": parts.push(`⌀${n(p.dia_mm)}`, `L ${n(p.length_mm)}`); break;
+    case "roof_sheeting": parts.push(`${n(p.length_mm)}×${n(p.breadth_mm)}`); break;
+  }
+  if ((p.count ?? 1) > 1) parts.push(`×${p.count}`);
+  return parts.filter(Boolean).join(" · ");
+}
+
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [pid, setPid] = useState<number | null>(null);
@@ -606,34 +644,54 @@ function LeftPanel({
         {members.map((m) => {
           const isEditing = editing === m.id;
           return (
-            <div className="card" key={m.id}>
+            <div className={`card el-card cat-${TYPE_CAT[m.member_type] || "concrete"}`} key={m.id}>
               <div className="row">
-                <strong>{m.label || m.member_type}</strong>
-                <span className={`badge ${m.source}`}>{m.source}</span>
-                <span
-                  className={`badge ${m.is_verified ? "verified" : "unverified"}`}
-                >
-                  {m.is_verified ? "verified" : "review"}
+                <span className="el-ico" title={m.member_type}>
+                  {TYPE_ICON[m.member_type] || "▫️"}
                 </span>
+                <div className="el-main">
+                  <div className="el-title">
+                    <strong>{m.label || m.member_type}</strong>
+                    <span className="el-src" title={`added via ${m.source}`}>
+                      {m.source === "manual" ? "M" : m.source.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="el-spec">{specOf(m.member_type, m.params) || m.member_type}</div>
+                </div>
                 <div className="spacer" />
+                <span
+                  className={`el-dot ${m.is_verified ? "ok" : "warn"}`}
+                  title={m.is_verified ? "verified" : "needs review"}
+                />
+                {!m.is_verified && (
+                  <button
+                    className="link" title="mark verified"
+                    onClick={async () => {
+                      await api.verifyMember(m.id);
+                      onChange();
+                    }}
+                  >
+                    ✓
+                  </button>
+                )}
                 <button
-                  className="link"
+                  className="link" title={isEditing ? "close editor" : "edit"}
                   onClick={() => setEditing(isEditing ? null : m.id)}
                 >
-                  {isEditing ? "close" : "edit"}
+                  {isEditing ? "✕" : "✎"}
                 </button>
                 <button
-                  className="link"
+                  className="link" title="delete"
                   onClick={async () => {
                     if (isEditing) setEditing(null);
                     await api.deleteMember(m.id);
                     onChange();
                   }}
                 >
-                  delete
+                  🗑
                 </button>
               </div>
-              {isEditing ? (
+              {isEditing && (
                 <div style={{ marginTop: 8 }}>
                   {(() => {
                     const st = formStateFromMember(m.params);
@@ -654,21 +712,6 @@ function LeftPanel({
                     );
                   })()}
                 </div>
-              ) : (
-                <>
-                  <div className="muted small">{m.member_type}</div>
-                  {!m.is_verified && (
-                    <button
-                      className="link"
-                      onClick={async () => {
-                        await api.verifyMember(m.id);
-                        onChange();
-                      }}
-                    >
-                      ✓ mark verified
-                    </button>
-                  )}
-                </>
               )}
             </div>
           );
@@ -1766,8 +1809,8 @@ function RightPanel({
           <table>
             <tbody>
               {rates.map((r) => (
-                <tr key={r.category}>
-                  <td>{r.label}</td>
+                <tr key={r.category} className={`cat-${r.category}`}>
+                  <td><span className="rate-name">{r.label}</span></td>
                   <td className="muted small">{r.unit}</td>
                   <td className="num">
                     <input
