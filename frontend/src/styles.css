@@ -227,7 +227,13 @@ a.btnlink:hover { filter: brightness(1.1); }
 .bs-chip .chip-name::before { content: ""; width: 7px; height: 7px; flex: none;
   border-radius: 2px; background: var(--c, var(--accent)); }
 .bs-chip .chip-amt { font-size: 14px; font-weight: 600; color: var(--text);
-  font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+  font-variant-numeric: tabular-nums; font-family: var(--font-mono);
+  display: flex; align-items: baseline; gap: 6px; }
+/* ▲/▼ flash when a rate edit moves this category's amount */
+.chip-delta { font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+  animation: fadeUp .25s ease both; white-space: nowrap; }
+.chip-delta.up { color: var(--warn); }
+.chip-delta.down { color: var(--good); }
 .bs-chip .chip-bar { width: 100%; height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .bs-chip .chip-bar i { display: block; height: 100%; background: var(--c, var(--accent));
   transform-origin: left center; }
@@ -514,6 +520,70 @@ a.btnlink:hover { filter: brightness(1.1); }
   70% { box-shadow: 0 0 0 9px rgba(56,189,248,0); }
   100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } }
 @keyframes shimmer { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+
+/* ===================== Paper theme (light drafting sheet) ===================== */
+/* Toggle via the ☀️/🌙 button; body.paper flips the token system to a warm
+   drafting-paper look. Category hues re-validated against the paper surface
+   (#f4f1e8): lightness band / chroma PASS, CVD floor band covered by the same
+   gaps + direct labels + named chips as the dark theme. Only surfaces that
+   were hard-coded dark need an explicit override here. */
+body.paper {
+  --bg: #f2eee3;            /* warm drafting paper */
+  --panel: #fbfaf5;         /* sheet white */
+  --panel2: #efe9db;        /* ledger tint */
+  --line: #d7cfbd;          /* pencil rule */
+  --line2: #00000010;
+  --text: #1d2733;          /* graphite ink */
+  --muted: #6d6656;         /* soft pencil */
+  --accent: #0b6aa2;        /* blueprint blue ink (readable on paper) */
+  --accent-2: #075a8c;
+  --accent2: #d9531e;       /* redline marker */
+  --grid: rgba(11, 106, 162, .05);
+  --shadow: 0 8px 26px rgba(60, 48, 20, .12);
+}
+body.paper {
+  background:
+    radial-gradient(1200px 620px at 82% -14%, rgba(11,106,162,.07) 0%, rgba(11,106,162,0) 60%),
+    repeating-linear-gradient(0deg, var(--grid) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(0deg, rgba(11,106,162,.04) 0 1px, transparent 1px 120px),
+    repeating-linear-gradient(90deg, rgba(11,106,162,.04) 0 1px, transparent 1px 120px),
+    var(--bg);
+}
+body.paper .topbar { background: linear-gradient(180deg, #fbfaf5, #efe9db); }
+body.paper th { background: var(--panel2); }
+body.paper tr.section td { background: var(--panel2); }
+body.paper .boq-summary,
+body.paper .kpi,
+body.paper .ob-step,
+body.paper .matsum { background: linear-gradient(180deg, #ffffff, var(--panel)); }
+body.paper .boq-table tr.item:nth-child(even) td { background: rgba(0,0,0,.02); }
+body.paper .boq-table tr.item:hover td { background: rgba(11,106,162,.07); }
+body.paper .ti-row:hover { background: rgba(11,106,162,.06); }
+/* badges: light tints of their semantic hue */
+body.paper .badge.ai,
+body.paper .badge.sev-med,
+body.paper .bs-hint { background: #f6edcf; color: #7a5b0b; border-color: #e2cf93; }
+body.paper .badge.nl,
+body.paper .badge.sev-low,
+body.paper .bs-coverage { background: #d9edf8; color: #0b5e8f; border-color: #a9d4ea; }
+body.paper .badge.manual,
+body.paper .badge.verified { background: #d8efdf; color: #1a6b3e; border-color: #a7d9ba; }
+body.paper .badge.unverified,
+body.paper .badge.sev-high,
+body.paper .bs-warnings,
+body.paper .errbar { background: #f7dcdc; color: #a12626; border-color: #e6b0b0; }
+body.paper .errbar { border-bottom: 1px solid #e6b0b0; }
+body.paper .errtext { color: #a12626; }
+/* dark popovers → paper cards */
+body.paper .seg-tip,
+body.paper .calc-pop { background: var(--panel); color: var(--text); }
+/* primary/accent buttons: keep white text on the deeper paper inks */
+body.paper button.primary { color: #fff; }
+body.paper button.accent { color: #fff; }
+body.paper a.btnlink.accent { color: #fff; }
+body.paper .chat-msg.user .bubble { color: #fff; }
+body.paper .comp-seg .seg-tip b { color: var(--accent); }
 
 /* ===================== Mobile / small screens ===================== */
 @media (max-width: 900px) {

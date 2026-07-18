@@ -71,6 +71,15 @@ export default function App() {
   const [showKey, setShowKey] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [mobileTab, setMobileTab] = useState<"left" | "center" | "right">("center");
+  // "ink" = dark blueprint (default) · "paper" = light drafting-paper theme.
+  const [theme, setTheme] = useState<string>(
+    () => localStorage.getItem("boq.theme") || "ink"
+  );
+
+  useEffect(() => {
+    document.body.classList.toggle("paper", theme === "paper");
+    localStorage.setItem("boq.theme", theme);
+  }, [theme]);
 
   const project = projects.find((p) => p.id === pid) || null;
 
@@ -156,6 +165,17 @@ export default function App() {
           }
         >
           {hasKey ? "🔑 AI key: on" : "🔑 Set AI key"}
+        </button>
+        <button
+          className="themebtn"
+          onClick={() => setTheme(theme === "paper" ? "ink" : "paper")}
+          title={
+            theme === "paper"
+              ? "Switch to the dark blueprint-ink theme"
+              : "Switch to the light drafting-paper theme"
+          }
+        >
+          {theme === "paper" ? "🌙 Ink" : "☀️ Paper"}
         </button>
         <select
           value={model}
@@ -1241,6 +1261,10 @@ function CenterPanel({
   const [centerTab, setCenterTab] = useState<"overview" | "items">("overview");
   const [localRates, setLocalRates] = useState<Record<string, number>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // ▲/▼ flash on category chips when a rate edit moves that category's amount.
+  const [chipDeltas, setChipDeltas] = useState<Record<string, number>>({});
+  const prevSubs = useRef<Record<string, number> | null>(null);
+  const deltaTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Seed/refresh the editable rate state whenever the stored rates change.
   useEffect(() => {
@@ -1248,6 +1272,30 @@ function CenterPanel({
     for (const r of rates) m[r.category] = r.rate;
     setLocalRates(m);
   }, [rates]);
+
+  useEffect(() => {
+    // Compare each category's amount to its last value; a change (from a
+    // non-zero baseline, so first load / indicative-load don't flash every
+    // chip) shows a ▲/▼ delta on the chip for a few seconds.
+    if (!boq) return;
+    const cur: Record<string, number> = {};
+    for (const g of boq.groups)
+      cur[g.category] = g.items.reduce(
+        (s, it) => s + it.quantity * (localRates[it.category] ?? 0), 0);
+    if (prevSubs.current) {
+      const d: Record<string, number> = {};
+      for (const k of Object.keys(cur)) {
+        const before = prevSubs.current[k] ?? 0;
+        if (before > 0 && Math.abs(cur[k] - before) >= 1) d[k] = cur[k] - before;
+      }
+      if (Object.keys(d).length) {
+        setChipDeltas(d);
+        clearTimeout(deltaTimer.current);
+        deltaTimer.current = setTimeout(() => setChipDeltas({}), 4000);
+      }
+    }
+    prevSubs.current = cur;
+  }, [localRates, boq]);
 
   if (!boq) return <div className="col center"><div className="empty">Loading…</div></div>;
 
@@ -1482,7 +1530,14 @@ function CenterPanel({
                       onClick={() => jumpToCat(g.category)}
                     >
                       <span className="chip-name">{g.label}</span>
-                      <span className="chip-amt">{INR0(st)}</span>
+                      <span className="chip-amt">
+                        {INR0(st)}
+                        {chipDeltas[g.category] != null && (
+                          <span className={`chip-delta ${chipDeltas[g.category] > 0 ? "up" : "down"}`}>
+                            {chipDeltas[g.category] > 0 ? "▲" : "▼"}{INR0(Math.abs(chipDeltas[g.category]))}
+                          </span>
+                        )}
+                      </span>
                       <span className="chip-bar"><i style={{ width: `${share}%` }} /></span>
                     </button>
                   );
