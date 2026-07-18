@@ -22,6 +22,47 @@ const money = (cur: string, n: number) =>
 const num = (n: number, d = 2) =>
   n.toLocaleString("en-IN", { maximumFractionDigits: d });
 
+// Category colours — mirrors the validated .cat-* palette in styles.css (keep
+// in sync). Used for the report's static composition bar / donut / legend.
+const CAT_HEX: Record<string, string> = {
+  earthwork: "#c98500", concrete: "#3987e5", formwork: "#d95926",
+  rebar: "#d55181", steel: "#9085e9", masonry: "#e66767",
+  plaster: "#199e70", roofing: "#008300", other: "#64748b",
+};
+const catHex = (c: string) => CAT_HEX[c] || CAT_HEX.other;
+
+// Static donut (print-safe, no JS/animation): same stroke-dasharray arc
+// technique as the app's DonutChart.
+function donutSvg(
+  data: { label: string; value: number; color: string }[],
+  total: number, centerVal: string
+): string {
+  const R = 70, C = 2 * Math.PI * R, GAP = 3;
+  let acc = 0;
+  const arcs = data.map((d) => {
+    const frac = d.value / total;
+    const a = { ...d, frac, start: acc };
+    acc += frac;
+    return a;
+  });
+  const circles = arcs.map((a) =>
+    `<circle cx="100" cy="100" r="${R}" fill="none" stroke="${a.color}" stroke-width="26"
+      stroke-dasharray="${Math.max(a.frac * C - GAP, 0.6)} ${C}"
+      stroke-dashoffset="${-(a.start * C) - GAP / 2}">
+      <title>${esc(a.label)}: ${(a.frac * 100).toFixed(1)}%</title></circle>`).join("");
+  const labels = arcs.filter((a) => a.frac >= 0.09).map((a) => {
+    const mid = (a.start + a.frac / 2) * 2 * Math.PI - Math.PI / 2;
+    const x = 100 + Math.cos(mid) * R, y = 100 + Math.sin(mid) * R;
+    return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central"
+      font-family="ui-monospace,monospace" font-size="10" font-weight="600" fill="#0b1120">${Math.round(a.frac * 100)}%</text>`;
+  }).join("");
+  return `<svg viewBox="0 0 200 200" width="188" height="188" role="img" aria-label="Cost share by category">
+    <g transform="rotate(-90 100 100)">${circles}</g>${labels}
+    <text x="100" y="94" text-anchor="middle" font-size="10" fill="#5b6b80">TOTAL</text>
+    <text x="100" y="110" text-anchor="middle" font-family="ui-monospace,monospace"
+      font-size="13" font-weight="700" fill="#16202c">${esc(centerVal)}</text></svg>`;
+}
+
 function buildReportHtml(project: ProjectLike, boq: Boq): string {
   const cur = project.currency || "INR";
   const total = boq.grand_total || 0;
@@ -39,10 +80,33 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   const abstract = boq.groups
     .map((g) => {
       const pct = total > 0 ? (g.subtotal / total) * 100 : 0;
-      return `<tr><td>${esc(g.label)}</td><td class="r">${esc(money(cur, g.subtotal))}</td>
+      return `<tr><td><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${catHex(g.category)};margin-right:7px;vertical-align:baseline"></span>${esc(g.label)}</td>
+        <td class="r">${esc(money(cur, g.subtotal))}</td>
         <td class="r">${pct.toFixed(1)}%</td></tr>`;
     })
     .join("");
+
+  // Cost infographics: static composition bar + donut (top 5 + Other fold).
+  const catAmts = boq.groups
+    .map((g) => ({ cat: g.category, label: g.label, value: g.subtotal }))
+    .filter((s) => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const donutData = (catAmts.length > 6
+    ? [...catAmts.slice(0, 5),
+       { cat: "other", label: "Other", value: catAmts.slice(5).reduce((s, r) => s + r.value, 0) }]
+    : catAmts
+  ).map((s) => ({ label: s.label, value: s.value, color: catHex(s.cat) }));
+  const compBar = total > 0
+    ? `<div style="display:flex;gap:2px;height:20px;margin:8px 0 4px">` +
+      boq.groups.map((g) => {
+        const pct = (g.subtotal / total) * 100;
+        if (pct <= 0) return "";
+        const lbl = pct >= 12
+          ? `<span style="font:600 10px ui-monospace,monospace;color:#0b1120">${pct.toFixed(0)}%</span>`
+          : "";
+        return `<div title="${esc(g.label)}: ${pct.toFixed(1)}%" style="width:${pct}%;background:${catHex(g.category)};border-radius:3px;display:flex;align-items:center;justify-content:center;min-width:5px">${lbl}</div>`;
+      }).join("") + `</div>`
+    : "";
 
   const detail = boq.groups
     .map((g) => {
@@ -92,10 +156,32 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
       coverage.map((e: any) => `<li>${esc(e.error || "")}</li>`).join("") + `</ul>`
     : "";
 
-  // Material take-off as side-by-side mini tables.
+  // Material take-off: KPI tiles for the headline numbers + mini detail tables.
   const matSections = materialTakeoff(boq);
+  const matRows = matSections.flatMap((s) => s.rows);
+  const matFind = (pfx: string) => matRows.find((r) => r.material.startsWith(pfx));
+  const matKpis = [
+    { icon: "🧱", name: "Cement", row: matFind("Cement"), unit: "bags" },
+    { icon: "🔩", name: "Reinforcement", row: matFind("Total reinforcement"), unit: "MT", scale: 1 / 1000, digits: 2 },
+    { icon: "🏗️", name: "Structural steel", row: matFind("MS sections"), unit: "MT", scale: 1 / 1000, digits: 2 },
+    { icon: "🧊", name: "Bricks", row: matFind("Bricks") },
+    { icon: "🪚", name: "Formwork", row: matFind("Formwork") },
+    { icon: "⛏️", name: "Excavation", row: matFind("Excavation") },
+  ].filter((k) => k.row && k.row.qty > 0);
+  const kpiHtml = matKpis.length
+    ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:10px;margin:6px 0 14px">` +
+      matKpis.map((k) => {
+        const v = k.row!.qty * (k.scale ?? 1);
+        const val = v.toLocaleString("en-IN", { maximumFractionDigits: k.digits ?? (v >= 100 ? 0 : 1) });
+        return `<div style="border:1px solid #cdd7e3;border-radius:8px;padding:9px 11px;background:#f7fafd">
+          <div style="font-size:15px">${k.icon}</div>
+          <div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:700;margin-top:3px">${esc(val)}<span style="font-size:10px;color:#5b6b80;font-weight:400"> ${esc(k.unit ?? k.row!.unit)}</span></div>
+          <div style="font-size:10px;color:#5b6b80">${esc(k.name)}</div></div>`;
+      }).join("") + `</div>`
+    : "";
   const matHtml = matSections.length
     ? `<h2>Material Summary <span style="font-weight:400;font-size:11px;color:#5b6b80">(indicative — verify mixes)</span></h2>
+       ${kpiHtml}
        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">` +
       matSections.map((s) =>
         `<div><div style="font-size:11px;text-transform:uppercase;color:#2f6df0;border-bottom:1px solid #cdd7e3;padding-bottom:3px;margin-bottom:4px">${esc(s.title)}</div>` +
@@ -146,12 +232,18 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   </div>
 
   <h2>Cost Abstract</h2>
-  <table><thead><tr><th>Category</th><th class="r">Amount</th><th class="r">Share</th></tr></thead>
-    <tbody>${abstract}</tbody></table>
-  <div class="totbox"><table>
-    <tr><td>Grand total</td><td class="r grand">${esc(money(cur, total))}</td></tr>
-    ${area ? `<tr><td>Cost / m² built-up</td><td class="r">${esc(money(cur, total / area))}</td></tr>` : ""}
-  </table></div>
+  ${compBar}
+  <div style="display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap;margin-top:8px">
+    ${total > 0 && donutData.length ? `<div style="flex:0 0 auto">${donutSvg(donutData, total, money(cur, total))}</div>` : ""}
+    <div style="flex:1;min-width:260px">
+      <table><thead><tr><th>Category</th><th class="r">Amount</th><th class="r">Share</th></tr></thead>
+        <tbody>${abstract}</tbody></table>
+      <div class="totbox"><table>
+        <tr><td>Grand total</td><td class="r grand">${esc(money(cur, total))}</td></tr>
+        ${area ? `<tr><td>Cost / m² built-up</td><td class="r">${esc(money(cur, total / area))}</td></tr>` : ""}
+      </table></div>
+    </div>
+  </div>
 
   ${coverageHtml}
 
