@@ -2,6 +2,7 @@
 import { CATEGORY_ORDER, computeMember, concreteVolume } from "./compute";
 import { Member, validateMember } from "./members";
 import { roundQty, pyRound } from "./units";
+import { DEFAULT_DISCIPLINE, inScope, outOfScopeReason } from "./disciplines";
 
 export interface StoredMember {
   id: number;
@@ -18,6 +19,7 @@ export interface BoqItem {
   confidence: number;
   is_verified: boolean;
   category: string;
+  member_type: string;
   description: string;
   unit: string;
   quantity: number;
@@ -38,10 +40,21 @@ export interface BoqGroup {
   subtotal: number;
 }
 
+/** An element that was read but NOT measured, because it belongs to another
+ *  discipline. Recorded so a focused run never looks like a complete one. */
+export interface OutOfScopeEntry {
+  member_id: number;
+  label: string;
+  member_type: string;
+  reason: string;
+}
+
 export interface Boq {
   groups: BoqGroup[];
   grand_total: number;
   errors: any[];
+  discipline: string;
+  out_of_scope: OutOfScopeEntry[];
 }
 
 function applyNetting(m: Member, volByLabel: Record<string, number>): Member {
@@ -58,10 +71,15 @@ function applyNetting(m: Member, volByLabel: Record<string, number>): Member {
   return { ...m, embedded_rcc_m3: per_unit };
 }
 
-export function buildBoq(members: StoredMember[], rates: Record<string, number>): Boq {
+export function buildBoq(
+  members: StoredMember[],
+  rates: Record<string, number>,
+  discipline: string = DEFAULT_DISCIPLINE
+): Boq {
   const catGroups: Record<string, BoqItem[]> = {};
   for (const [c] of CATEGORY_ORDER) catGroups[c] = [];
   const errors: any[] = [];
+  const out_of_scope: OutOfScopeEntry[] = [];
 
   // Pass 1: validate + map label -> total concrete volume.
   const validated: { row: StoredMember; member: Member }[] = [];
@@ -101,8 +119,21 @@ export function buildBoq(members: StoredMember[], rates: Record<string, number>)
     return true;
   });
 
+  // The discipline gate: measure only what the active discipline owns. Anything
+  // else is set aside into the out-of-scope register — visible, never silent.
+  const inDiscipline = kept.filter(({ row, member }) => {
+    if (inScope(member.member_type, discipline)) return true;
+    out_of_scope.push({
+      member_id: row.id,
+      label: member.label || "(unlabelled)",
+      member_type: member.member_type,
+      reason: outOfScopeReason(member.member_type, discipline),
+    });
+    return false;
+  });
+
   // Pass 2: compute quantities with netting applied.
-  for (const { row, member } of kept) {
+  for (const { row, member } of inDiscipline) {
     const effective = applyNetting(member, volByLabel);
     for (const q of computeMember(effective)) {
       const rate = Number(rates[q.category] ?? 0.0);
@@ -113,6 +144,7 @@ export function buildBoq(members: StoredMember[], rates: Record<string, number>)
         confidence: row.confidence,
         is_verified: row.is_verified,
         category: q.category,
+        member_type: member.member_type,
         description: q.description,
         unit: q.unit,
         quantity,
@@ -142,11 +174,17 @@ export function buildBoq(members: StoredMember[], rates: Record<string, number>)
   // reads only part of a multi-sheet drawing set (e.g. footings but not the
   // column layout), and the BOQ would otherwise under-report silently. These
   // notes never change quantities — they only flag likely omissions to review.
-  for (const note of coverageNotes(kept.map((k) => k.member), (catGroups.formwork || []).length > 0)) {
+  for (const note of coverageNotes(inDiscipline.map((k) => k.member), (catGroups.formwork || []).length > 0)) {
     errors.push({ warning: true, coverage: true, error: note });
   }
 
-  return { groups, grand_total: pyRound(grand_total, 2), errors };
+  return {
+    groups,
+    grand_total: pyRound(grand_total, 2),
+    errors,
+    discipline,
+    out_of_scope,
+  };
 }
 
 // Likely-omission hints from the set of captured members. Conservative: each

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import services
+from ..engine.disciplines import DEFAULT_DISCIPLINE
 from ..ai import get_provider
 from ..config import settings
 from ..db import get_db
@@ -290,17 +291,21 @@ def verify_member(mid: int, db: Session = Depends(get_db)):
 # BOQ + export
 # --------------------------------------------------------------------------- #
 @router.get("/projects/{pid}/boq")
-def get_boq(pid: int, db: Session = Depends(get_db)):
+def get_boq(pid: int, discipline: str = DEFAULT_DISCIPLINE,
+            db: Session = Depends(get_db)):
+    """Build the BOQ under one discipline. Elements outside it are returned in
+    `out_of_scope` rather than measured — see engine/disciplines.py."""
     _get_project(db, pid)
     rows = db.query(Member).filter_by(project_id=pid).order_by(Member.id).all()
-    return services.build_boq(rows, _rate_map(db, pid))
+    return services.build_boq(rows, _rate_map(db, pid), discipline)
 
 
 @router.get("/projects/{pid}/export/xlsx")
-def export_xlsx(pid: int, db: Session = Depends(get_db)):
+def export_xlsx(pid: int, discipline: str = DEFAULT_DISCIPLINE,
+                db: Session = Depends(get_db)):
     p = _get_project(db, pid)
     rows = db.query(Member).filter_by(project_id=pid).order_by(Member.id).all()
-    boq = services.build_boq(rows, _rate_map(db, pid))
+    boq = services.build_boq(rows, _rate_map(db, pid), discipline)
     data = build_workbook(_project_dict(p), boq)
     fname = f"BOQ_{p.name.replace(' ', '_')}.xlsx"
     return Response(

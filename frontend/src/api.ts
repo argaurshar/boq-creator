@@ -4,6 +4,7 @@
 // still exists for local/Codespaces use, but this build does not need it.
 
 import { buildBoq, StoredMember, Boq, BoqItem, BoqGroup } from "./engine/boq";
+import { Discipline, DEFAULT_DISCIPLINE } from "./engine/disciplines";
 import { validateMember } from "./engine/members";
 import { computeMember } from "./engine/compute";
 import { roundQty } from "./engine/units";
@@ -25,6 +26,8 @@ export interface Project {
   report_date?: string;
   drawing_ref?: string;
   built_up_area_m2?: number;
+  /** Active take-off discipline — exactly one per run (the discipline gate). */
+  discipline?: Discipline;
 }
 
 export interface RateRow {
@@ -143,6 +146,7 @@ export const api = {
       client: body.client || "",
       location: body.location || "",
       currency: body.currency || "INR",
+      discipline: body.discipline || DEFAULT_DISCIPLINE,
     };
     store.projects.push(p);
     store.members[p.id] = [];
@@ -159,12 +163,12 @@ export const api = {
   },
 
   getBoq: (pid: number): Promise<Boq> => {
-    getProject(pid);
+    const proj = getProject(pid);
     const rows: StoredMember[] = (store.members[pid] || []).map((m) => ({
       id: m.id, params: m.params, source: m.source, confidence: m.confidence,
       is_verified: m.is_verified, label: m.label,
     }));
-    return ok(buildBoq(rows, store.rates[pid] || {}));
+    return ok(buildBoq(rows, store.rates[pid] || {}, proj.discipline || DEFAULT_DISCIPLINE));
   },
 
   listMembers: (pid: number) =>
