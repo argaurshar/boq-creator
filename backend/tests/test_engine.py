@@ -243,15 +243,23 @@ def test_material_takeoff_aggregates_from_boq():
         row(2, {"member_type": "brick_wall", "label": "W1", "length_mm": 3000,
                 "height_mm": 3000, "thickness_mm": 230}),
     ]
-    sections = material_takeoff(build_boq(members, {}))
-    titles = [s["title"] for s in sections]
+    # The discipline gate measures one discipline per run, so the take-off is
+    # asserted per discipline: concrete and rebar under Structure, bricks under
+    # Architecture. Each run must surface its own materials and only those.
+    structural = material_takeoff(build_boq(members, {}, "structure"))
+    titles = [s["title"] for s in structural]
     assert "Cement & aggregates" in titles
     assert any("Reinforcement steel" in t for t in titles)
-    cement = next(r for s in sections if s["title"] == "Cement & aggregates"
+    cement = next(r for s in structural if s["title"] == "Cement & aggregates"
                   for r in s["rows"] if r["material"].startswith("Cement"))
     assert cement["qty"] > 0
-    # bricks surfaced from masonry
-    assert any(r["material"].startswith("Bricks") for s in sections for r in s["rows"])
+    # The wall is not measured here, so no bricks in a structural run.
+    assert not any(r["material"].startswith("Bricks")
+                   for s in structural for r in s["rows"])
+
+    # bricks surfaced from masonry, in the discipline that owns it
+    arch = material_takeoff(build_boq(members, {}, "architecture"))
+    assert any(r["material"].startswith("Bricks") for s in arch for r in s["rows"])
 
 
 def test_truss_steel_dedup_removes_duplicate_members_and_warns():
@@ -363,3 +371,46 @@ def test_coverage_quiet_on_complete_set():
     ], {})
     cov = [e for e in boq["errors"] if e.get("coverage")]
     assert cov == []
+
+
+def test_discipline_gate_measures_one_discipline_and_registers_the_rest():
+    """The gate must measure only the active discipline and register the rest.
+
+    A partial take-off must never look like a complete one: every element is
+    either measured or listed in out_of_scope, with a reason naming where it
+    belongs. Mirrors the TS engine's buildBoq().
+    """
+    from types import SimpleNamespace
+    from app.services import build_boq
+
+    def row(i, params):
+        return SimpleNamespace(id=i, params=params, source="manual", confidence=1.0,
+                               is_verified=True, label=params.get("label", ""))
+    members = [
+        row(1, {"member_type": "column", "label": "C1", "b_mm": 300,
+                "D_mm": 600, "height_mm": 3000}),
+        row(2, {"member_type": "brick_wall", "label": "W1", "length_mm": 3000,
+                "height_mm": 3000, "thickness_mm": 230}),
+        row(3, {"member_type": "plaster_surface", "label": "P1",
+                "length_mm": 3000, "height_mm": 3000, "faces": 2}),
+    ]
+
+    structural = build_boq(members, {}, "structure")
+    assert structural["discipline"] == "structure"
+    assert {g["category"] for g in structural["groups"]} == {"concrete", "formwork"}
+    # The two architectural elements are registered, not dropped.
+    assert {o["member_id"] for o in structural["out_of_scope"]} == {2, 3}
+    assert all("Architecture" in o["reason"] for o in structural["out_of_scope"])
+
+    arch = build_boq(members, {}, "architecture")
+    assert {g["category"] for g in arch["groups"]} == {"masonry", "plaster"}
+    assert {o["member_id"] for o in arch["out_of_scope"]} == {1}
+
+    # Interior supports no element types yet: nothing measured, everything
+    # registered — and the emptiness is explicit in the register, not silent.
+    interior = build_boq(members, {}, "interior")
+    assert interior["groups"] == []
+    assert {o["member_id"] for o in interior["out_of_scope"]} == {1, 2, 3}
+
+    # Every BOQ line carries its member_type, so the Item column can be built.
+    assert all(i["member_type"] for g in arch["groups"] for i in g["items"])

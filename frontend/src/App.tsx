@@ -14,6 +14,15 @@ import {
 import { STEEL_SECTIONS } from "./engine/materials";
 import { DEMO_RATES } from "./engine/demo";
 import { materialTakeoff } from "./engine/takeoff";
+import {
+  BOQ_COLUMNS, groupSerial, itemSerial, itemNameOf, specTextOf,
+} from "./engine/boqtable";
+import {
+  DISCIPLINES, DEFAULT_DISCIPLINE, disciplineInfo, Discipline,
+} from "./engine/disciplines";
+
+// Right-aligned columns of the seven-column BOQ contract.
+const NUM_COLS = new Set<string>(["Quantity", "Rate", "Amount"]);
 
 const INR = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -136,6 +145,19 @@ export default function App() {
     if (pid !== null) refresh(pid);
   }, [pid, refresh]);
 
+  // Switching discipline re-gates the take-off: nothing is deleted, elements
+  // simply move between "measured" and the out-of-scope register.
+  const setDiscipline = async (d: Discipline) => {
+    if (pid === null) return;
+    try {
+      const p = await api.updateProject(pid, { discipline: d });
+      setProjects((ps) => ps.map((x) => (x.id === p.id ? p : x)));
+      refresh(pid);
+    } catch (e: any) {
+      setError("Could not switch discipline: " + e.message);
+    }
+  };
+
   const createProject = async (rawName: string) => {
     setShowNewProject(false);
     const name = rawName.trim();
@@ -254,6 +276,8 @@ export default function App() {
             <LeftPanel
               pid={pid}
               members={members}
+              discipline={project?.discipline || DEFAULT_DISCIPLINE}
+              onDiscipline={setDiscipline}
               onChange={() => refresh(pid)}
             />
             <CenterPanel
@@ -429,13 +453,59 @@ function PromptModal({
 }
 
 /* ----------------------------------------------------------------- Left */
+/** The discipline gate: four modes, exactly one active per run. Shows plainly
+ *  what the active pack measures and what it does not cover yet, so a focused
+ *  run is never mistaken for a complete one. */
+function DisciplineGate({
+  discipline, onDiscipline,
+}: { discipline: Discipline; onDiscipline: (d: Discipline) => void }) {
+  const info = disciplineInfo(discipline);
+  return (
+    <div className="card dgate">
+      <div className="dgate-head">
+        <span className="dgate-kicker">Take-off discipline</span>
+        <span className="dgate-note">one at a time</span>
+      </div>
+      <div className="dgate-grid">
+        {DISCIPLINES.map((d) => (
+          <button
+            key={d.key}
+            className={`dgate-opt ${d.key === discipline ? "on" : ""}`}
+            onClick={() => onDiscipline(d.key)}
+            title={d.blurb}
+          >
+            <span className="dgate-ico">{d.icon}</span>
+            <span className="dgate-label">{d.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="dgate-blurb">{info.blurb}</div>
+      {info.types.length === 0 ? (
+        <div className="dgate-warn">
+          ⚠ No element types are supported in this mode yet — {info.label} take-off
+          is not available. Nothing will be measured in this discipline.
+        </div>
+      ) : info.notYet.length > 0 ? (
+        <details className="dgate-gaps">
+          <summary>Not covered by this pack yet ({info.notYet.length})</summary>
+          <ul>{info.notYet.map((n) => <li key={n}>{n}</li>)}</ul>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function LeftPanel({
   pid,
   members,
+  discipline,
+  onDiscipline,
   onChange,
 }: {
   pid: number;
   members: Member[];
+  discipline: Discipline;
+  onDiscipline: (d: Discipline) => void;
   onChange: () => void;
 }) {
   const [busy, setBusy] = useState("");
@@ -509,6 +579,10 @@ function LeftPanel({
     <div className="col left">
       <h2>Drawings & Elements</h2>
       <div className="scroll">
+        {/* The discipline gate — exactly one discipline is measured per run, so
+            the take-off stays focused. Anything outside it is registered, not
+            dropped (see the out-of-scope panel in the BOQ). */}
+        <DisciplineGate discipline={discipline} onDiscipline={onDiscipline} />
         <div className="card">
           <label className="field">Upload drawing PDFs (you can select several)</label>
           <input
@@ -1486,6 +1560,23 @@ function CenterPanel({
                   </>
                 );
               })()}
+              {/* Out-of-scope register: elements read but not measured because
+                  they belong to another discipline. Visible, never silent — a
+                  focused run must not look like a complete one. */}
+              {(boq.out_of_scope || []).length > 0 && (
+                <details className="bs-oos">
+                  <summary>
+                    🗂 {boq.out_of_scope.length} element(s) outside {disciplineInfo(boq.discipline).label} — read, not measured
+                  </summary>
+                  <ul>
+                    {boq.out_of_scope.map((o, i) => (
+                      <li key={i}>
+                        <strong>{o.label}</strong> <span className="muted">({o.member_type})</span> — {o.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               {/* Where the money goes — 100% stacked composition bar. Chips
                   below are the legend, so identity is never colour-alone. */}
               {grand > 0 && (
@@ -1617,22 +1708,20 @@ function CenterPanel({
               <table className="boq-table">
                 <thead>
                   <tr>
-                    <th>Description</th>
-                    <th className="num">No.</th>
-                    <th className="num">Quantity</th>
-                    <th className="num">Rate</th>
-                    <th className="num">Amount</th>
-                    <th></th>
+                    {BOQ_COLUMNS.map((c) => (
+                      <th key={c} className={NUM_COLS.has(c) ? "num" : undefined}>{c}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {groups.map((g) => {
+                  {groups.map((g, gi) => {
                     const isCol = collapsed.has(g.category);
                     const unit = g.items[0]?.unit || "";
                     const st = subtotalOf(g.shown);
                     return (
                       <Fragment key={g.category}>
                         <tr className={`cat-head cat-${g.category}`} id={`cat-${g.category}`}>
+                          <td className="sno">{groupSerial(gi)}</td>
                           <td className="cat-name" colSpan={2}
                             onClick={() => setCollapsed((p) => { const n = new Set(p); n.has(g.category) ? n.delete(g.category) : n.add(g.category); return n; })}>
                             <span className="chev">{isCol ? "▸" : "▾"}</span>
@@ -1654,7 +1743,8 @@ function CenterPanel({
                         {!isCol && g.shown.map((it, i) => {
                           const k = rowKey(g.category, i);
                           return (
-                            <ItemRow key={k} it={it} amount={amountFor(it)} rate={rateFor(it.category)}
+                            <ItemRow key={k} it={it} serial={itemSerial(gi, i)}
+                              amount={amountFor(it)} rate={rateFor(it.category)}
                               open={open === k} toggle={() => setOpen(open === k ? null : k)} />
                           );
                         })}
@@ -1662,7 +1752,7 @@ function CenterPanel({
                     );
                   })}
                   <tr className="grand-row">
-                    <td colSpan={4} className="grand">GRAND TOTAL{cont > 0 ? ` + ${cont}% contingency` : ""}</td>
+                    <td colSpan={5} className="grand">GRAND TOTAL{cont > 0 ? ` + ${cont}% contingency` : ""}</td>
                     <td className="num grand">{INR(tentative)}</td>
                     <td></td>
                   </tr>
@@ -1709,32 +1799,34 @@ function CenterPanel({
 }
 
 function ItemRow({
-  it, amount, rate, open, toggle,
+  it, serial, amount, rate, open, toggle,
 }: {
-  it: BoqItem; amount: number; rate: number; open: boolean; toggle: () => void;
+  it: BoqItem; serial: string; amount: number; rate: number; open: boolean; toggle: () => void;
 }) {
   const review = !it.is_verified && it.source !== "manual";
   return (
     <>
       <tr className={review ? "item review" : "item"}>
+        <td className="sno">{serial}</td>
+        <td className="itemname">{itemNameOf(it)}</td>
         <td className="desc">
           {it.description}
           {it.source !== "manual" && <span className={`badge ${it.source}`}>{it.source}</span>}
           {review && <span className="badge unverified">review</span>}
-        </td>
-        <td className="num">{it.nos ?? ""}</td>
-        <td className="num">{QTY(it.quantity)} <span className="unit">{it.unit}</span></td>
-        <td className="num rate-cell">{rate ? QTY(rate) : <span className="muted">—</span>}</td>
-        <td className="num amt">{amount ? INR(amount) : <span className="muted">—</span>}</td>
-        <td className="num">
+          {/* Drill-down keeps nos / L / B / D and the formula as row metadata
+              rather than adding an eighth column. */}
           <button className={`calc-btn ${open ? "on" : ""}`} onClick={toggle}>
             {open ? "hide" : "calc"}
           </button>
         </td>
+        <td className="num">{QTY(it.quantity)} <span className="unit">{it.unit}</span></td>
+        <td className="num rate-cell">{rate ? QTY(rate) : <span className="muted">—</span>}</td>
+        <td className="num amt">{amount ? INR(amount) : <span className="muted">—</span>}</td>
+        <td className="spec">{specTextOf(it) || <span className="muted">—</span>}</td>
       </tr>
       {open && (
         <tr className="calc-row">
-          <td colSpan={6}>
+          <td colSpan={7}>
             <div className="calc-card">
               {it.audit.map((s, k) => (
                 <div className="calc-step" key={k}>

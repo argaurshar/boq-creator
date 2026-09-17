@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import TypeAdapter
 
 from .engine.compute import CATEGORY_ORDER, compute_member, concrete_volume
+from .engine.disciplines import DEFAULT_DISCIPLINE, in_scope, out_of_scope_reason
 from .engine.units import round_qty
 from .schemas.member_schema import Member
 
@@ -46,11 +47,13 @@ def _apply_netting(m: Member, vol_by_label: dict[str, float]) -> Member:
     return m.model_copy(update={"embedded_rcc_m3": per_unit})
 
 
-def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
+def build_boq(members_orm, rates: dict[str, float],
+              discipline: str = DEFAULT_DISCIPLINE) -> dict[str, Any]:
     """Compute the full BOQ from stored members + a {category: rate} map.
 
     `members_orm` is a list of ORM Member rows (id, params, source,
-    confidence, is_verified, label).
+    confidence, is_verified, label). `discipline` gates which member types are
+    measured; everything else is returned in `out_of_scope`, never dropped.
     """
     cat_groups: dict[str, list[dict[str, Any]]] = {c: [] for c, _ in CATEGORY_ORDER}
 
@@ -95,8 +98,24 @@ def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
                 continue
         kept.append((row, member))
 
-    # Pass 2: compute quantities, applying netting links.
+    # The discipline gate: measure only what the active discipline owns.
+    # Anything else is set aside into the out-of-scope register — visible,
+    # never silent. Mirrors the TS engine.
+    out_of_scope: list[dict[str, Any]] = []
+    in_discipline: list[tuple[Any, Member]] = []
     for row, member in kept:
+        if in_scope(member.member_type, discipline):
+            in_discipline.append((row, member))
+        else:
+            out_of_scope.append({
+                "member_id": row.id,
+                "label": member.label or "(unlabelled)",
+                "member_type": member.member_type,
+                "reason": out_of_scope_reason(member.member_type, discipline),
+            })
+
+    # Pass 2: compute quantities, applying netting links.
+    for row, member in in_discipline:
         effective = _apply_netting(member, vol_by_label)
         for q in compute_member(effective):
             rate = float(rates.get(q.category, 0.0))
@@ -107,6 +126,7 @@ def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
                 "confidence": row.confidence,
                 "is_verified": row.is_verified,
                 "category": q.category,
+                "member_type": member.member_type,
                 "description": q.description,
                 "unit": q.unit,
                 "quantity": qty,
@@ -138,13 +158,15 @@ def build_boq(members_orm, rates: dict[str, float]) -> dict[str, Any]:
     # the TS engine.
     errors = cat_groups.get("_errors", [])
     has_formwork = bool(cat_groups.get("formwork"))
-    for note in coverage_notes([mem for _, mem in kept], has_formwork):
+    for note in coverage_notes([mem for _, mem in in_discipline], has_formwork):
         errors.append({"warning": True, "coverage": True, "error": note})
 
     return {
         "groups": groups,
         "grand_total": round(grand_total, 2),
         "errors": errors,
+        "discipline": discipline,
+        "out_of_scope": out_of_scope,
     }
 
 

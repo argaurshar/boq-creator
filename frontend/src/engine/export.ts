@@ -6,9 +6,23 @@ import * as XLSX from "xlsx";
 import { Boq } from "./boq";
 import { pyRound } from "./units";
 import { materialTakeoff } from "./takeoff";
+import { groupSerial, itemSerial, itemNameOf, specTextOf } from "./boqtable";
 
-const COLUMNS = ["Item", "Description", "No.", "L (m)", "B (m)", "D/H (m)",
-  "Quantity", "Unit", "Rate (INR)", "Amount (INR)"];
+// The seven-column BOQ contract — identical headings, order and content to the
+// on-screen table and the printed report. No Unit column: the unit rides on the
+// Quantity cell as a number format, so the cell stays numeric and the Amount
+// formula stays live.
+const COLUMNS = ["Serial Number", "Item", "Description", "Quantity", "Rate", "Amount", "Specification"];
+
+// Detailed measurement lives on its own sheet, not as extra BOQ columns.
+const MEASURE_COLUMNS = ["Serial Number", "Item", "Description", "No.",
+  "L (m)", "B (m)", "D/H (m)", "Quantity", "Unit"];
+
+/** Excel number format that renders the unit inside a numeric quantity cell. */
+function qtyFormat(unit: string): string {
+  const u = String(unit || "").replace(/"/g, "");
+  return u ? `0.000" ${u}"` : "0.000";
+}
 
 const r3 = (v: any) => (typeof v === "number" ? pyRound(v, 3) : v ?? null);
 
@@ -33,41 +47,72 @@ function boqSheet(project: any, boq: Boq): XLSX.WorkSheet {
   aoa.push([...COLUMNS]);
   const headerRow = aoa.length;
 
+  // Columns: A Serial Number | B Item | C Description | D Quantity | E Rate
+  //          F Amount | G Specification
   const subtotalRows: number[] = [];
-  let itemNo = 0;
-  for (const group of boq.groups) {
-    aoa.push([group.label]);
+  const qtyCells: { row: number; unit: string }[] = [];
+  for (let gi = 0; gi < boq.groups.length; gi++) {
+    const group = boq.groups[gi];
+    aoa.push([groupSerial(gi), group.label]);
     const first = aoa.length + 1;
-    for (const it of group.items) {
-      itemNo += 1;
+    for (let ii = 0; ii < group.items.length; ii++) {
+      const it = group.items[ii];
       aoa.push([
-        itemNo, it.description, it.nos,
-        r3(it.length_m), r3(it.breadth_m), r3(it.depth_m),
-        it.quantity, it.unit, it.rate, null,
+        itemSerial(gi, ii), itemNameOf(it), it.description,
+        it.quantity, it.rate, null, specTextOf(it),
       ]);
       const r = aoa.length;
-      formulas.push({ row: r, col: 10, f: `G${r}*I${r}`, v: it.amount });
+      qtyCells.push({ row: r, unit: it.unit });
+      formulas.push({ row: r, col: 6, f: `D${r}*E${r}`, v: it.amount });
     }
     const last = aoa.length;
-    aoa.push(["", `Sub-total — ${group.label}`, "", "", "", "", "", "", "", null]);
+    aoa.push(["", "", `Sub-total — ${group.label}`, "", "", null, ""]);
     const subR = aoa.length;
-    if (last >= first) formulas.push({ row: subR, col: 10, f: `SUM(J${first}:J${last})`, v: group.subtotal });
+    if (last >= first) formulas.push({ row: subR, col: 6, f: `SUM(F${first}:F${last})`, v: group.subtotal });
     subtotalRows.push(subR);
   }
 
   aoa.push([]);
-  aoa.push(["", "GRAND TOTAL", "", "", "", "", "", "", "", null]);
+  aoa.push(["", "", "GRAND TOTAL", "", "", null, ""]);
   const gtRow = aoa.length;
   if (subtotalRows.length) {
-    formulas.push({ row: gtRow, col: 10, f: subtotalRows.map((r) => `J${r}`).join("+"), v: boq.grand_total });
+    formulas.push({ row: gtRow, col: 6, f: subtotalRows.map((r) => `F${r}`).join("+"), v: boq.grand_total });
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   // Write value + formula so the Amount column is populated even in viewers
   // that don't recalc, and SheetJS persists the formula on write.
   for (const { row, col, f, v } of formulas) ws[addr(row, col)] = { t: "n", f, v };
-  ws["!cols"] = COLUMNS.map((c, i) => ({ wch: i === 1 ? 46 : Math.max(10, c.length + 2) }));
+  // The unit rides on the numeric Quantity cell as a number format, so the cell
+  // stays a number (keeping D*E live) while still reading "5.400 m3".
+  for (const { row, unit } of qtyCells) {
+    const cell = ws[addr(row, 4)];
+    if (cell) cell.z = qtyFormat(unit);
+  }
+  ws["!cols"] = [{ wch: 14 }, { wch: 30 }, { wch: 52 }, { wch: 16 },
+    { wch: 12 }, { wch: 16 }, { wch: 46 }];
   ws["!freeze"] = { xSplit: 0, ySplit: headerRow };
+  return ws;
+}
+
+/** Detailed measurement — the nos / L / B / D basis behind every BOQ line.
+ *  Lives here rather than as extra columns on the BOQ sheet. */
+function measurementSheet(boq: Boq): XLSX.WorkSheet {
+  const aoa: any[][] = [["Detailed Measurement"], [], [...MEASURE_COLUMNS]];
+  for (let gi = 0; gi < boq.groups.length; gi++) {
+    const group = boq.groups[gi];
+    aoa.push([groupSerial(gi), group.label]);
+    for (let ii = 0; ii < group.items.length; ii++) {
+      const it = group.items[ii];
+      aoa.push([
+        itemSerial(gi, ii), itemNameOf(it), it.description, it.nos,
+        r3(it.length_m), r3(it.breadth_m), r3(it.depth_m), it.quantity, it.unit,
+      ]);
+    }
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 14 }, { wch: 28 }, { wch: 46 }, { wch: 8 },
+    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 8 }];
   return ws;
 }
 
@@ -180,6 +225,7 @@ export function downloadBoqXlsx(project: any, boq: Boq): void {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, costAbstractSheet(project, boq), "Cost Abstract");
   XLSX.utils.book_append_sheet(wb, boqSheet(project, boq), "BOQ");
+  XLSX.utils.book_append_sheet(wb, measurementSheet(boq), "Detailed Measurement");
   XLSX.utils.book_append_sheet(wb, bbsSheet(boq), "Bar Bending Schedule");
   const trusses = trussSheet(boq);
   if (trusses) XLSX.utils.book_append_sheet(wb, trusses, "Steel Truss Details");

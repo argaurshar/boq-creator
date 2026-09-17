@@ -3,6 +3,7 @@
 // PDF). No dependencies — works on the static GitHub Pages build.
 import { Boq } from "./boq";
 import { materialTakeoff } from "./takeoff";
+import { groupSerial, itemSerial, itemNameOf, specTextOf } from "./boqtable";
 
 interface ProjectLike {
   name?: string; client?: string; location?: string; currency?: string;
@@ -108,20 +109,26 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
       }).join("") + `</div>`
     : "";
 
+  // The seven-column contract: Serial Number | Item | Description | Quantity |
+  // Rate | Amount | Specification — identical to the on-screen table and the
+  // spreadsheet. The unit rides inside the Quantity cell; nos/L/B/D are not
+  // columns here.
   const detail = boq.groups
-    .map((g) => {
+    .map((g, gi) => {
       const rows = g.items
         .map((it, i) => `<tr>
-            <td>${i + 1}</td><td>${esc(it.description)}</td>
-            <td class="r">${it.nos ?? ""}</td>
-            <td class="r">${esc(num(it.quantity, 3))}</td><td>${esc(it.unit)}</td>
+            <td>${esc(itemSerial(gi, i))}</td>
+            <td>${esc(itemNameOf(it))}</td>
+            <td>${esc(it.description)}</td>
+            <td class="r">${esc(num(it.quantity, 3))} ${esc(it.unit)}</td>
             <td class="r">${it.rate ? esc(num(it.rate)) : "—"}</td>
             <td class="r">${it.amount ? esc(money(cur, it.amount)) : "—"}</td>
+            <td class="spec">${esc(specTextOf(it))}</td>
           </tr>`)
         .join("");
-      return `<tr class="grp"><td colspan="7">${esc(g.label)}</td></tr>${rows}
-        <tr class="sub"><td colspan="6">Sub-total — ${esc(g.label)}</td>
-        <td class="r">${esc(money(cur, g.subtotal))}</td></tr>`;
+      return `<tr class="grp"><td colspan="7">${esc(groupSerial(gi))}. ${esc(g.label)}</td></tr>${rows}
+        <tr class="sub"><td colspan="5">Sub-total — ${esc(g.label)}</td>
+        <td class="r">${esc(money(cur, g.subtotal))}</td><td></td></tr>`;
     })
     .join("");
 
@@ -154,6 +161,16 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
     ? `<h2>Coverage Check <span style="font-weight:400;font-size:11px;color:#5b6b80">(${coverage.length} possible omission(s) — review)</span></h2>
        <ul style="font-size:12px;color:#9a6a00;background:#fff7e6;border:1px solid #f0d39a;border-radius:6px;padding:8px 8px 8px 26px;margin:0">` +
       coverage.map((e: any) => `<li>${esc(e.error || "")}</li>`).join("") + `</ul>`
+    : "";
+
+  // Out-of-scope register: elements read but not measured because they belong
+  // to another discipline. Printed so the hand-over document states plainly
+  // what this take-off does and does not cover.
+  const oos = boq.out_of_scope || [];
+  const oosHtml = oos.length
+    ? `<h2>Outside This Discipline <span style="font-weight:400;font-size:11px;color:#5b6b80">(${oos.length} element(s) read but not measured)</span></h2>
+       <ul style="font-size:12px;color:#40506b;background:#f4f6fa;border:1px solid #d5dce8;border-radius:6px;padding:8px 8px 8px 26px;margin:0">` +
+      oos.map((o) => `<li><strong>${esc(o.label)}</strong> (${esc(o.member_type)}) — ${esc(o.reason)}</li>`).join("") + `</ul>`
     : "";
 
   // Material take-off: KPI tiles for the headline numbers + mini detail tables.
@@ -247,9 +264,13 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
 
   ${coverageHtml}
 
+  ${oosHtml}
+
   <h2>Detailed Bill of Quantities</h2>
-  <table><thead><tr><th>#</th><th>Description</th><th class="r">No.</th><th class="r">Qty</th>
-    <th>Unit</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
+  <style>td.spec{font-size:10.5px;color:#40506b}</style>
+  <table><thead><tr><th>Serial Number</th><th>Item</th><th>Description</th>
+    <th class="r">Quantity</th><th class="r">Rate</th><th class="r">Amount</th>
+    <th>Specification</th></tr></thead>
     <tbody>${detail}</tbody></table>
 
   ${section("Bar Bending Schedule",

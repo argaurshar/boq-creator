@@ -93,12 +93,28 @@ def test_demo_seed_populates_all_categories():
     pid = _new_project()
     res = client.post(f"/api/projects/{pid}/seed").json()
     assert res["seeded_members"] >= 8
-    boq = client.get(f"/api/projects/{pid}/boq").json()
-    cats = {g["category"] for g in boq["groups"]}
-    # every department should appear in the demo BOQ
+    # The discipline gate measures one discipline per run, so the demo's
+    # categories are spread across disciplines. Union them to prove the seed
+    # exercises every department and that the gate partitions without loss.
+    cats: set[str] = set()
+    for disc in ("structure", "civil", "architecture"):
+        boq = client.get(f"/api/projects/{pid}/boq", params={"discipline": disc}).json()
+        cats |= {g["category"] for g in boq["groups"]}
     assert {"earthwork", "concrete", "formwork", "rebar", "steel",
             "masonry", "plaster"} <= cats
-    assert boq["grand_total"] > 0
+    # Structure alone must still produce a priced BOQ, and must register the
+    # architectural elements it deliberately did not measure.
+    structural = client.get(f"/api/projects/{pid}/boq",
+                            params={"discipline": "structure"}).json()
+    assert structural["grand_total"] > 0
+    assert structural["discipline"] == "structure"
+    oos_types = {o["member_type"] for o in structural["out_of_scope"]}
+    assert "brick_wall" in oos_types and "plaster_surface" in oos_types
+    # Nothing is lost: every seeded member is either measured or registered.
+    measured = {i["member_id"] for g in structural["groups"] for i in g["items"]}
+    registered = {o["member_id"] for o in structural["out_of_scope"]}
+    all_ids = {m["id"] for m in client.get(f"/api/projects/{pid}/members").json()}
+    assert measured | registered == all_ids
     # demo members are pre-verified
     assert all(m["is_verified"] for m in client.get(f"/api/projects/{pid}/members").json())
 
@@ -125,12 +141,21 @@ def test_cross_member_netting():
         "height_mm": 3000, "thickness_mm": 230, "count": 1,
         "embedded_labels": ["C1"]})
 
-    boq = client.get(f"/api/projects/{pid}/boq").json()
-    items = [it for g in boq["groups"] for it in g["items"]]
-    backfill = next(it for it in items if "backfill" in it["description"].lower())
-    masonry = next(it for it in items if it["category"] == "masonry")
+    # Netting must survive the discipline gate: the column is Structure and the
+    # wall it is embedded in is Architecture, yet the deduction still applies.
+    # Volumes are mapped by label before the gate runs, so each discipline sees
+    # the correct netted quantity in its own run.
+    structural = client.get(f"/api/projects/{pid}/boq",
+                            params={"discipline": "structure"}).json()
+    s_items = [it for g in structural["groups"] for it in g["items"]]
+    backfill = next(it for it in s_items if "backfill" in it["description"].lower())
     # excavation 6.0 - embedded 2.0 = 4.0
     assert abs(backfill["quantity"] - 4.0) < 0.01
+
+    arch = client.get(f"/api/projects/{pid}/boq",
+                      params={"discipline": "architecture"}).json()
+    a_items = [it for g in arch["groups"] for it in g["items"]]
+    masonry = next(it for it in a_items if it["category"] == "masonry")
     # gross 2.07 - embedded column 0.54 = 1.53
     assert abs(masonry["quantity"] - 1.53) < 0.01
 
@@ -140,6 +165,9 @@ def test_excel_export():
     client.post(f"/api/projects/{pid}/members", json={
         "member_type": "brick_wall", "label": "W1", "length_mm": 3000,
         "height_mm": 3000, "thickness_mm": 230, "count": 1})
-    r = client.get(f"/api/projects/{pid}/export/xlsx")
+    # brick_wall is an Architecture element — export under that discipline so
+    # the workbook carries real lines rather than an empty gated BOQ.
+    r = client.get(f"/api/projects/{pid}/export/xlsx",
+                   params={"discipline": "architecture"})
     assert r.status_code == 200
     assert r.content[:2] == b"PK"  # xlsx is a zip
