@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from .member_schema import Opening, _MemberBase
+from .member_base import Opening, _MemberBase
 
 CEILING_TYPES = ("gypsum", "POP", "grid", "wood")
 PAINT_SURFACES = ("internal", "external")

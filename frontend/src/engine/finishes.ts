@@ -34,7 +34,7 @@ export const RAILING_MATERIALS = ["MS", "SS", "glass", "wood"];
 // --------------------------------------------------------------------------- //
 // Private validation helpers (copied from members.ts — not exported there)
 // --------------------------------------------------------------------------- //
-function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number } = {}): number | null {
+function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number; int?: boolean } = {}): number | null {
   let v = raw?.[key];
   if (v === undefined || v === null || v === "") {
     if (opts.required) throw new Error(`Field '${key}' is required`);
@@ -44,6 +44,7 @@ function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; g
   if (!isFinite(v)) throw new Error(`Field '${key}' must be a number`);
   if (opts.gt0 && !(v > 0)) throw new Error(`Field '${key}' must be > 0`);
   if (opts.ge0 && !(v >= 0)) throw new Error(`Field '${key}' must be >= 0`);
+  if (opts.int && v !== Math.trunc(v)) throw new Error(`Field '${key}' must be a whole number`);
   return v;
 }
 
@@ -53,7 +54,7 @@ function openings(raw: any): Opening[] {
   return raw.map((o) => ({
     width_mm: num(o, "width_mm", { required: true })!,
     height_mm: num(o, "height_mm", { required: true })!,
-    count: Math.trunc(num(o, "count", { def: 1 })!),
+    count: Math.trunc(num(o, "count", { int: true, def: 1 })!),
   }));
 }
 
@@ -112,9 +113,9 @@ export const validators: Record<string, (raw: any, base: Member) => Member> = {
     ...base,
     length_mm: num(raw, "length_mm", { required: true })!,
     height_mm: num(raw, "height_mm", { required: true })!,
-    faces: Math.trunc(num(raw, "faces", { gt0: true, def: 1 })!),
+    faces: Math.trunc(num(raw, "faces", { int: true, gt0: true, def: 1 })!),
     openings: openings(raw.openings),
-    coats: Math.trunc(num(raw, "coats", { gt0: true, def: 2 })!),
+    coats: Math.trunc(num(raw, "coats", { int: true, gt0: true, def: 2 })!),
     paint_system: text(raw, "paint_system", "acrylic emulsion"),
     surface: choice(raw, "surface", PAINT_SURFACES, "internal"),
   }),
@@ -340,6 +341,7 @@ export const DEMO_MEMBERS: any[] = [
     kind: "door", frame_material: "hardwood", shutter_material: "flush shutter" },
   { member_type: "waterproofing", label: "WP1 Toilet sunk", length_mm: 2100, breadth_mm: 1500,
     count: 2, upturn_height_mm: 300, treatment: "APP membrane 3 mm" },
+  { member_type: "railing", label: "RL1 Balcony", length_mm: 3500, height_mm: 900, count: 2, material: "MS" },
 ];
 
 // --------------------------------------------------------------------------- //

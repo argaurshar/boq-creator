@@ -35,7 +35,7 @@ const KNOWN_TYPES = [
   ...PACK_TYPES,
 ];
 
-function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number } = {}): number | null {
+function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number; int?: boolean } = {}): number | null {
   let v = raw?.[key];
   if (v === undefined || v === null || v === "") {
     if (opts.required) throw new Error(`Field '${key}' is required`);
@@ -45,6 +45,7 @@ function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; g
   if (!isFinite(v)) throw new Error(`Field '${key}' must be a number`);
   if (opts.gt0 && !(v > 0)) throw new Error(`Field '${key}' must be > 0`);
   if (opts.ge0 && !(v >= 0)) throw new Error(`Field '${key}' must be >= 0`);
+  if (opts.int && v !== Math.trunc(v)) throw new Error(`Field '${key}' must be a whole number`);
   return v;
 }
 
@@ -53,7 +54,7 @@ function barGroups(raw: any): BarGroup[] {
   if (!Array.isArray(raw)) throw new Error("bar groups must be a list");
   return raw.map((b) => ({
     dia_mm: num(b, "dia_mm", { required: true, gt0: true })!,
-    count: Math.trunc(num(b, "count", { def: 1 })!),
+    count: Math.trunc(num(b, "count", { int: true, def: 1 })!),
   }));
 }
 
@@ -75,7 +76,7 @@ function stirrups(raw: any): Stirrups | null {
     : [];
   return {
     dia_mm: num(raw, "dia_mm", { required: true, gt0: true })!,
-    legs: Math.trunc(num(raw, "legs", { def: 2 })!),
+    legs: Math.trunc(num(raw, "legs", { int: true, def: 2 })!),
     spacing_mm: raw.spacing_mm == null ? null : num(raw, "spacing_mm", { gt0: true })!,
     zones,
   };
@@ -87,7 +88,7 @@ function openings(raw: any): Opening[] {
   return raw.map((o) => ({
     width_mm: num(o, "width_mm", { required: true })!,
     height_mm: num(o, "height_mm", { required: true })!,
-    count: Math.trunc(num(o, "count", { def: 1 })!),
+    count: Math.trunc(num(o, "count", { int: true, def: 1 })!),
   }));
 }
 
@@ -99,7 +100,7 @@ function trussSegments(raw: any): TrussSegment[] {
       component: s.component != null ? String(s.component) : "",
       designation: String(s.designation),
       length_mm: num(s, "length_mm", { required: true, gt0: true })!,
-      count: Math.trunc(num(s, "count", { def: 1, gt0: true })!),
+      count: Math.trunc(num(s, "count", { int: true, def: 1, gt0: true })!),
     }));
   if (!segs.length) throw new Error("a truss needs at least one segment with a section designation");
   return segs;
@@ -121,7 +122,7 @@ export function validateMember(raw: any): Member {
   const base: Member = {
     member_type: t,
     label: raw.label != null ? String(raw.label) : "",
-    count: Math.trunc(num(raw, "count", { def: 1 })!),
+    count: Math.trunc(num(raw, "count", { int: true, def: 1 })!),
     concrete_grade: raw.concrete_grade != null ? String(raw.concrete_grade) : "M25",
     steel_grade: raw.steel_grade != null ? String(raw.steel_grade) : "Fe500",
     cover_mm: num(raw, "cover_mm", { def: 40 })!,
@@ -203,7 +204,7 @@ export function validateMember(raw: any): Member {
         ...base,
         length_mm: num(raw, "length_mm", { required: true })!,
         height_mm: num(raw, "height_mm", { required: true })!,
-        faces: Math.trunc(num(raw, "faces", { def: 1 })!),
+        faces: Math.trunc(num(raw, "faces", { int: true, def: 1 })!),
         thickness_mm: num(raw, "thickness_mm", { def: 12 })!,
         openings: openings(raw.openings),
       };

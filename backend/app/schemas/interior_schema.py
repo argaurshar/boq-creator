@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from .member_schema import _MemberBase
+from .member_base import _MemberBase
 
 HEIGHT_GATE = (
     "height_mm is required: a layout plan only gives width and depth — "

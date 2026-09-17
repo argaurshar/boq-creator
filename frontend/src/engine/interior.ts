@@ -34,7 +34,7 @@ const CLAUSE_ELECTRICAL = "IS 1200 Part 18";
 
 /* ------------------------------------------------------------------ helpers */
 // Private copies of the validation helpers in members.ts (not exported there).
-function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number } = {}): number | null {
+function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number; int?: boolean } = {}): number | null {
   let v = raw?.[key];
   if (v === undefined || v === null || v === "") {
     if (opts.required) throw new Error(`Field '${key}' is required`);
@@ -44,6 +44,7 @@ function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; g
   if (!isFinite(v)) throw new Error(`Field '${key}' must be a number`);
   if (opts.gt0 && !(v > 0)) throw new Error(`Field '${key}' must be > 0`);
   if (opts.ge0 && !(v >= 0)) throw new Error(`Field '${key}' must be >= 0`);
+  if (opts.int && v !== Math.trunc(v)) throw new Error(`Field '${key}' must be a whole number`);
   return v;
 }
 
@@ -54,7 +55,7 @@ function openings(raw: any): Opening[] {
   return raw.map((o) => ({
     width_mm: num(o, "width_mm", { required: true })!,
     height_mm: num(o, "height_mm", { required: true })!,
-    count: Math.trunc(num(o, "count", { def: 1 })!),
+    count: Math.trunc(num(o, "count", { int: true, def: 1 })!),
   }));
 }
 // Kept for contract parity with members.ts; no interior type carries openings today.
@@ -103,7 +104,7 @@ export const validators: Record<string, (raw: any, base: Member) => Member> = {
     if (blank(raw?.height_mm)) throw new Error(HEIGHT_GATE);
     return {
       ...base,
-      count: Math.trunc(num(raw, "count", { def: 1, gt0: true })!),
+      count: Math.trunc(num(raw, "count", { int: true, def: 1, gt0: true })!),
       width_mm: num(raw, "width_mm", { required: true, gt0: true })!,
       height_mm: num(raw, "height_mm", { required: true, gt0: true })!,
       depth_mm: num(raw, "depth_mm", { def: 0, ge0: true })!,
@@ -117,7 +118,7 @@ export const validators: Record<string, (raw: any, base: Member) => Member> = {
     if (blank(raw?.height_mm)) throw new Error(HEIGHT_GATE);
     return {
       ...base,
-      count: Math.trunc(num(raw, "count", { def: 1, gt0: true })!),
+      count: Math.trunc(num(raw, "count", { int: true, def: 1, gt0: true })!),
       width_mm: num(raw, "width_mm", { required: true, gt0: true })!,
       height_mm: num(raw, "height_mm", { required: true, gt0: true })!,
       kind: choice(raw, "kind", GLAZING_KINDS, "mirror"),
@@ -126,19 +127,19 @@ export const validators: Record<string, (raw: any, base: Member) => Member> = {
   },
   loose_furniture: (raw, base) => ({
     ...base,
-    count: Math.trunc(num(raw, "count", { required: true, gt0: true })!),
+    count: Math.trunc(num(raw, "count", { int: true, required: true, gt0: true })!),
     item: text(raw, "item", "3-seater sofa"),
     finish: text(raw, "finish", "fabric"),
   }),
   sanitary_fixture: (raw, base) => ({
     ...base,
-    count: Math.trunc(num(raw, "count", { required: true, gt0: true })!),
+    count: Math.trunc(num(raw, "count", { int: true, required: true, gt0: true })!),
     fixture: choice(raw, "fixture", FIXTURES, "WC"),
     make: text(raw, "make", ""),
   }),
   electrical_point: (raw, base) => ({
     ...base,
-    count: Math.trunc(num(raw, "count", { required: true, gt0: true })!),
+    count: Math.trunc(num(raw, "count", { int: true, required: true, gt0: true })!),
     point_type: choice(raw, "point_type", POINT_TYPES, "light"),
   }),
 };
