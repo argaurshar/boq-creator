@@ -21,6 +21,7 @@ from ..ai import get_provider
 from ..config import settings
 from ..db import get_db
 from ..engine.compute import CATEGORY_ORDER
+from ..engine import finishes, interior
 from ..export.xlsx import build_workbook
 from ..models import ChatMessage, Drawing, Member, Project, Rate
 
@@ -320,7 +321,9 @@ def export_xlsx(pid: int, discipline: str = DEFAULT_DISCIPLINE,
 # --------------------------------------------------------------------------- #
 DEFAULT_UNITS = {"earthwork": "m3", "concrete": "m3", "formwork": "m2",
                  "rebar": "kg", "steel": "kg", "masonry": "m3", "plaster": "m2",
-                 "roofing": "m2"}
+                 "roofing": "m2",
+                 # discipline packs
+                 **finishes.UNITS, **interior.UNITS}
 
 
 @router.get("/projects/{pid}/rates")
@@ -453,7 +456,8 @@ _DEMO_MEMBERS: list[dict[str, Any]] = [
 ]
 
 _DEMO_RATES = {"earthwork": 350, "concrete": 6500, "formwork": 450, "rebar": 75,
-               "steel": 90, "masonry": 6000, "plaster": 280, "roofing": 650}
+               "steel": 90, "masonry": 6000, "plaster": 280, "roofing": 650,
+               **finishes.DEMO_RATES, **interior.DEMO_RATES}
 
 
 @router.post("/projects/{pid}/seed")

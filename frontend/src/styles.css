@@ -437,6 +437,20 @@ a.btnlink:hover { filter: brightness(1.1); }
 
 /* Donut ("pie") — ≤6 slices, colours from the validated .cat-* palette */
 .cat-other { --c: #64748b; }
+/* discipline-pack categories — cycle the validated hues; chips are labelled */
+.cat-flooring      { --c: #3987e5; }
+.cat-skirting      { --c: #199e70; }
+.cat-tiling        { --c: #d95926; }
+.cat-ceiling       { --c: #9085e9; }
+.cat-painting      { --c: #d55181; }
+.cat-doors_windows { --c: #c98500; }
+.cat-waterproofing { --c: #008300; }
+.cat-railing       { --c: #e66767; }
+.cat-joinery       { --c: #3987e5; }
+.cat-furniture     { --c: #c98500; }
+.cat-glazing       { --c: #199e70; }
+.cat-sanitary      { --c: #9085e9; }
+.cat-services      { --c: #d55181; }
 .donut-card { margin-bottom: 0; }
 .donut-wrap { position: relative; max-width: 250px; margin: 0 auto; }
 .donut { display: block; width: 100%; animation: donutIn .7s cubic-bezier(.22,.61,.36,1) both; }

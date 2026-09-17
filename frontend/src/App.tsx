@@ -21,6 +21,7 @@ import {
   DISCIPLINES, DEFAULT_DISCIPLINE, disciplineInfo, disciplinesFor, inScope, Discipline,
 } from "./engine/disciplines";
 import type { OutOfScopeEntry } from "./engine/boq";
+import { PACK_TYPES, PACK_UI } from "./engine/packs";
 
 // Right-aligned columns of the seven-column BOQ contract.
 const NUM_COLS = new Set<string>(["Quantity", "Rate", "Amount"]);
@@ -42,6 +43,11 @@ const TYPE_CAT: Record<string, string> = {
   steel_member: "steel", truss: "steel", anchor_bolt: "steel",
   roof_sheeting: "roofing",
 };
+// Discipline packs contribute their own icons, categories and form fields.
+for (const t of PACK_TYPES) {
+  TYPE_ICON[t] = PACK_UI[t].icon;
+  TYPE_CAT[t] = PACK_UI[t].category;
+}
 
 // One-line dimension summary (mm implied) so a card reads like a schedule row.
 function specOf(t: string, p: Record<string, any>): string {
@@ -61,6 +67,8 @@ function specOf(t: string, p: Record<string, any>): string {
     case "truss": parts.push(`span ${n(p.span_mm)}`, `${(p.segments || []).length} segments`); break;
     case "anchor_bolt": parts.push(`⌀${n(p.dia_mm)}`, `L ${n(p.length_mm)}`); break;
     case "roof_sheeting": parts.push(`${n(p.length_mm)}×${n(p.breadth_mm)}`); break;
+    default:
+      if (PACK_UI[t]) parts.push(...PACK_UI[t].specLine(p));
   }
   if ((p.count ?? 1) > 1) parts.push(`×${p.count}`);
   return parts.filter(Boolean).join(" · ");
@@ -914,6 +922,14 @@ const LABEL_PREFIX: Record<string, string> = {
   earthwork_pit: "E1", steel_member: "ST1", truss: "T1",
   anchor_bolt: "AB1", roof_sheeting: "RS1",
 };
+// Discipline packs register their manual-form config into the same maps.
+for (const t of PACK_TYPES) {
+  const u = PACK_UI[t];
+  TYPE_LABELS[t] = u.label;
+  DIMS[t] = u.dims;
+  LABEL_PREFIX[t] = u.labelPrefix;
+  if (u.hasOpenings) HAS_OPENINGS.add(t);
+}
 // sensible reinforcement prefills so common entry is one click
 const REIN_DEFAULTS: Record<string, Record<string, string>> = {
   column: { mainCount: "8", mainDia: "16", tieDia: "8", tieSpacing: "150" },
@@ -927,6 +943,11 @@ function defaultsFor(type: string): Record<string, string> {
   if (RCC.has(type)) v.concrete_grade = "M25";
   if (REINF.has(type)) v.cover_mm = type === "beam" || type === "slab" ? "25" : "40";
   for (const d of DIMS[type]) v[d.k] = d.def;
+  const pu = PACK_UI[type];
+  if (pu) {
+    for (const [k, opts] of Object.entries(pu.choices || {})) v[k] = opts[0];
+    for (const t of pu.texts || []) v[t.k] = t.def;
+  }
   if (type === "steel_member") v.designation = "ISMB300";
   if (type === "truss") v.connection_pct = "5";
   Object.assign(v, REIN_DEFAULTS[type] || {});
@@ -952,6 +973,11 @@ function formStateFromMember(p: any): { type: string; vals: Record<string, strin
   if (RCC.has(type)) vals.concrete_grade = p.concrete_grade ?? "M25";
   if (REINF.has(type)) vals.cover_mm = String(p.cover_mm ?? (type === "beam" || type === "slab" ? 25 : 40));
   for (const d of DIMS[type] || []) if (p[d.k] != null) vals[d.k] = String(p[d.k]);
+  const pu = PACK_UI[type];
+  if (pu) {
+    for (const k of Object.keys(pu.choices || {})) if (p[k] != null) vals[k] = String(p[k]);
+    for (const t of pu.texts || []) if (p[t.k] != null) vals[t.k] = String(p[t.k]);
+  }
   if (type === "steel_member") vals.designation = p.designation ?? "";
   if (type === "truss") vals.connection_pct = String(p.connection_pct ?? 5);
   if (type === "column") {
@@ -1027,6 +1053,11 @@ function MemberForm({
     if (RCC.has(type)) m.concrete_grade = v.concrete_grade || "M25";
     if (REINF.has(type)) m.cover_mm = n("cover_mm") ?? 40;
     for (const d of DIMS[type]) { const val = n(d.k); if (val !== undefined) m[d.k] = val; }
+    const pu = PACK_UI[type];
+    if (pu) {
+      for (const k of Object.keys(pu.choices || {})) if (v[k]) m[k] = v[k];
+      for (const t of pu.texts || []) if (v[t.k] !== undefined && v[t.k] !== "") m[t.k] = v[t.k];
+    }
     if (type === "column") {
       if (n("mainDia") && n("mainCount")) m.main_bars = [{ dia_mm: n("mainDia"), count: n("mainCount") }];
       if (n("tieDia") && n("tieSpacing")) m.ties = { dia_mm: n("tieDia"), legs: 2, spacing_mm: n("tieSpacing") };
@@ -1119,6 +1150,20 @@ function MemberForm({
         {numIn("count", "Count (nos)")}
         {DIMS[type].map((d) => (
           <Fragment key={d.k}>{numIn(d.k, d.label, d.unit)}</Fragment>
+        ))}
+        {PACK_UI[type]?.choices && Object.entries(PACK_UI[type].choices!).map(([k, opts]) => (
+          <label className="ff" key={k}>
+            <span>{k.replace(/_/g, " ")}</span>
+            <select value={v[k] ?? opts[0]} onChange={(e) => set(k, e.target.value)}>
+              {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+        ))}
+        {PACK_UI[type]?.texts?.map((t) => (
+          <label className="ff" key={t.k}>
+            <span>{t.label}</span>
+            <input type="text" value={v[t.k] ?? ""} onChange={(e) => set(t.k, e.target.value)} />
+          </label>
         ))}
         {RCC.has(type) && (
           <label className="ff">

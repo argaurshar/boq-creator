@@ -24,6 +24,6 @@ export function plaster_surface(m: Member): Quantity[] {
     unit: "m2", value: net, nos: n, length_m: L, depth_m: H,
     audit: [step("plaster.area", "(L*H*faces - openings(>0.5m2))*count",
       { L_m: L, H_m: H, faces: m.faces, deduct_openings_m2: deduct, count: n }, net, CLAUSE)],
-    extra: { mortar_m3: pyRound(mortar, 3) },
+    extra: { mortar_m3: pyRound(mortar, 3), thickness_mm: m.thickness_mm, faces: m.faces },
   })];
 }

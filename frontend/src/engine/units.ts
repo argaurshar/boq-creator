@@ -25,6 +25,7 @@ export const ROUNDING: Record<string, number> = {
   kg: 2,
   MT: 3,
   Nos: 0,
+  sqft: 2,
 };
 
 export function roundQty(value: number, unit: string): number {

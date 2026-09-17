@@ -34,6 +34,7 @@ def plaster_surface(m) -> list[Quantity]:
                 "(L*H*faces - openings(>0.5m2))*count",
                 {"L_m": L, "H_m": H, "faces": m.faces,
                  "deduct_openings_m2": deduct, "count": n}, net, CLAUSE)],
-            extra={"mortar_m3": round(mortar, 3)},
+            extra={"mortar_m3": round(mortar, 3), "thickness_mm": m.thickness_mm,
+                   "faces": m.faces},
         )
     ]

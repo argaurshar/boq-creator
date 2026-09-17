@@ -2,6 +2,8 @@
 // backend/app/schemas/member_schema.py (Pydantic) to plain TS so the static
 // build validates members the same way the API did. All linear dims in mm.
 
+import { PACK_TYPES, PACK_VALIDATORS } from "./packs";
+
 export interface BarGroup { dia_mm: number; count: number; }
 export interface BarMesh { dia_mm: number; spacing_mm: number; }
 export interface StirrupZone { spacing_mm: number; length_mm: number; }
@@ -29,6 +31,8 @@ const KNOWN_TYPES = [
   "column", "beam", "footing", "slab", "rcc_wall", "pcc",
   "brick_wall", "plaster_surface", "earthwork_pit", "steel_member", "truss",
   "anchor_bolt", "roof_sheeting",
+  // discipline packs (Architecture finishes, Interior fit-out)
+  ...PACK_TYPES,
 ];
 
 function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number } = {}): number | null {
@@ -242,7 +246,10 @@ export function validateMember(raw: any): Member {
         lap_pct: num(raw, "lap_pct", { def: 0 })!,
         opening_area_m2: num(raw, "opening_area_m2", { def: 0 })!,
       };
-    default:
+    default: {
+      const packValidate = PACK_VALIDATORS[t];
+      if (packValidate) return packValidate(raw, base);
       throw new Error(`Unhandled member_type '${t}'`);
+    }
   }
 }

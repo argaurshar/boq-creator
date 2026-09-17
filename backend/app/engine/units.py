@@ -27,6 +27,7 @@ ROUNDING = {
     "kg": 2,     # steel weight
     "MT": 3,
     "Nos": 0,
+    "sqft": 2,
 }
 
 

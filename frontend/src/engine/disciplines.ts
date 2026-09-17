@@ -50,25 +50,23 @@ export const DISCIPLINES: DisciplineInfo[] = [
     label: "Architecture",
     icon: "🧱",
     blurb: "Building fabric and finishes — masonry, plaster, roof covering.",
-    types: ["brick_wall", "plaster_surface", "roof_sheeting"],
-    notYet: [
-      "Flooring and skirting", "Dado and wall tiling", "False ceiling",
-      "Painting by system and coat count", "Doors and windows from the schedule",
-      "Waterproofing", "Railings",
+    types: [
+      "brick_wall", "plaster_surface", "roof_sheeting",
+      "flooring", "wall_tiling", "false_ceiling", "painting", "door_window",
+      "waterproofing", "railing",
     ],
+    notYet: ["External cladding systems", "Sloped-roof waterproofing", "Staircase finishes"],
   },
   {
     key: "interior",
     label: "Interior",
     icon: "🛋️",
     blurb: "Fit-out — joinery, finishes, ceilings, loose furniture.",
-    types: [],
-    notYet: [
-      "Joinery (wardrobes, kitchen, storage, TV units)",
-      "False ceiling and cove", "Flooring and wall panelling",
-      "Painting", "Glazing and mirrors", "Sanitary and CP",
-      "Lighting and services interface", "Loose furniture",
+    types: [
+      "joinery", "glazing", "loose_furniture", "sanitary_fixture", "electrical_point",
+      "flooring", "wall_tiling", "false_ceiling", "painting", "door_window",
     ],
+    notYet: ["Soft furnishings and curtains", "HVAC interface", "Handover cleaning"],
   },
 ];
 

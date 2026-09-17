@@ -14,23 +14,16 @@ import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
 import { claudeParseNl, claudeExtract, claudeReview, DEFAULT_MODEL } from "./engine/claude";
 import { downloadBoqXlsx } from "./engine/export";
+import {
+  PACK_PROMPT_SHAPES, PACK_DEMO_MEMBERS, PACK_UNITS, PACK_DEMO_RATES,
+} from "./engine/packs";
 
-// Member-shape text contributed by discipline packs to the extraction prompt.
-// Packs register themselves here so api.ts stays ignorant of their internals.
-const PACK_PROMPT_SHAPES: string[] = [];
-export function registerPackPromptShapes(text: string): void {
-  if (text && !PACK_PROMPT_SHAPES.includes(text)) PACK_PROMPT_SHAPES.push(text);
-}
-function packPromptShapes(): string {
-  return PACK_PROMPT_SHAPES.join("\n\n");
-}
-const PACK_DEMO_MEMBERS: Record<string, any>[] = [];
-export function registerPackDemoMembers(list: Record<string, any>[]): void {
-  for (const m of list) if (!PACK_DEMO_MEMBERS.includes(m)) PACK_DEMO_MEMBERS.push(m);
-}
-function packDemoMembers(): Record<string, any>[] {
-  return PACK_DEMO_MEMBERS;
-}
+// Discipline packs contribute extraction-prompt shapes, demo elements, units
+// and indicative rates; packs.ts merges them so api.ts never imports a pack.
+function packPromptShapes(): string { return PACK_PROMPT_SHAPES; }
+function packDemoMembers(): Record<string, any>[] { return PACK_DEMO_MEMBERS; }
+const ALL_UNITS: Record<string, string> = { ...DEFAULT_UNITS, ...PACK_UNITS };
+const ALL_DEMO_RATES: Record<string, number> = { ...DEMO_RATES, ...PACK_DEMO_RATES };
 
 export type { Boq, BoqItem, BoqGroup };
 
@@ -242,7 +235,7 @@ export const api = {
     getProject(pid);
     const r = store.rates[pid] || {};
     return ok(CATEGORY_ORDER.map(([category, label]) => ({
-      category, label, unit: DEFAULT_UNITS[category] || "", rate: r[category] ?? 0,
+      category, label, unit: ALL_UNITS[category] || "", rate: r[category] ?? 0,
     })));
   },
 
@@ -380,7 +373,7 @@ export const api = {
       added += 1;
     }
     const r = (store.rates[pid] ||= {});
-    for (const [cat, rate] of Object.entries(DEMO_RATES)) {
+    for (const [cat, rate] of Object.entries(ALL_DEMO_RATES)) {
       if (r[cat] === undefined) r[cat] = rate;
     }
     save();

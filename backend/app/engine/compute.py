@@ -6,7 +6,7 @@ concrete + formwork + rebar, etc.). No AI, no I/O. See project.md section 5.
 """
 from __future__ import annotations
 
-from . import concrete, earthwork, masonry, plaster, rebar, roofing, steel
+from . import concrete, earthwork, finishes, interior, masonry, plaster, rebar, roofing, steel
 from .units import Quantity
 
 # member_type -> list of formula functions to run
@@ -24,6 +24,8 @@ REGISTRY = {
     "truss":           [steel.truss],
     "anchor_bolt":     [steel.anchor_bolt],
     "roof_sheeting":   [roofing.roof_sheeting],
+    **finishes.REGISTRY,
+    **interior.REGISTRY,
 }
 
 
@@ -64,4 +66,6 @@ CATEGORY_ORDER = [
     ("masonry", "Brickwork / Masonry"),
     ("plaster", "Plaster & Finishes"),
     ("roofing", "Roofing & Sheeting"),
+    *finishes.CATEGORIES,
+    *interior.CATEGORIES,
 ]

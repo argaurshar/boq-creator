@@ -203,12 +203,18 @@ class RoofSheeting(_MemberBase):
     opening_area_m2: float = 0.0
 
 
+# Discipline packs are imported here, after _MemberBase exists, so the pack
+# schema modules can inherit from it without a circular-import failure.
+from .finishes_schema import FINISHES_TYPES  # noqa: E402
+from .interior_schema import INTERIOR_TYPES  # noqa: E402
+
 Member = Annotated[
-    Union[
+    Union[tuple([
         Column, Beam, Footing, Slab, RccWall, Pcc,
         BrickWall, PlasterSurface, EarthworkPit, SteelMember, Truss,
         AnchorBolt, RoofSheeting,
-    ],
+        *FINISHES_TYPES, *INTERIOR_TYPES,
+    ])],
     Field(discriminator="member_type"),
 ]
 
