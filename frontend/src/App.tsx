@@ -18,8 +18,9 @@ import {
   BOQ_COLUMNS, groupSerial, itemSerial, itemNameOf, specTextOf,
 } from "./engine/boqtable";
 import {
-  DISCIPLINES, DEFAULT_DISCIPLINE, disciplineInfo, Discipline,
+  DISCIPLINES, DEFAULT_DISCIPLINE, disciplineInfo, disciplinesFor, inScope, Discipline,
 } from "./engine/disciplines";
+import type { OutOfScopeEntry } from "./engine/boq";
 
 // Right-aligned columns of the seven-column BOQ contract.
 const NUM_COLS = new Set<string>(["Quantity", "Rate", "Amount"]);
@@ -110,6 +111,9 @@ export default function App() {
       setMembers(m);
       setRates(r);
       setError(null);
+      // On a phone the panes are tabs: an empty project should open on the
+      // Elements pane where the three steps live, not on an empty BOQ.
+      if (m.length === 0) setMobileTab("left");
     } catch (e: any) {
       setError("Failed to load project data: " + e.message);
     }
@@ -277,6 +281,10 @@ export default function App() {
               pid={pid}
               members={members}
               discipline={project?.discipline || DEFAULT_DISCIPLINE}
+              outOfScope={boq?.out_of_scope || []}
+              hasKey={hasKey}
+              onOpenKey={() => setShowKey(true)}
+              onShowBoq={() => setMobileTab("center")}
               onDiscipline={setDiscipline}
               onChange={() => refresh(pid)}
             />
@@ -285,6 +293,8 @@ export default function App() {
               boq={boq}
               rates={rates}
               currency={project?.currency || "INR"}
+              onDiscipline={setDiscipline}
+              onStart={() => setMobileTab("left")}
               onChange={() => refresh(pid)}
             />
             <RightPanel
@@ -461,10 +471,11 @@ function DisciplineGate({
 }: { discipline: Discipline; onDiscipline: (d: Discipline) => void }) {
   const info = disciplineInfo(discipline);
   return (
-    <div className="card dgate">
-      <div className="dgate-head">
-        <span className="dgate-kicker">Take-off discipline</span>
-        <span className="dgate-note">one at a time</span>
+    <div className="card dgate step-card">
+      <div className="step-h">
+        <span className="step-n done">1</span>
+        <span className="step-t">Choose discipline</span>
+        <span className="step-s">one at a time</span>
       </div>
       <div className="dgate-grid">
         {DISCIPLINES.map((d) => (
@@ -499,15 +510,27 @@ function LeftPanel({
   pid,
   members,
   discipline,
+  outOfScope,
+  hasKey,
+  onOpenKey,
+  onShowBoq,
   onDiscipline,
   onChange,
 }: {
   pid: number;
   members: Member[];
   discipline: Discipline;
+  outOfScope: OutOfScopeEntry[];
+  hasKey: boolean;
+  onOpenKey: () => void;
+  onShowBoq: () => void;
   onDiscipline: (d: Discipline) => void;
   onChange: () => void;
 }) {
+  const dInfo = disciplineInfo(discipline);
+  // member id -> reason it sits outside the active discipline
+  const oosById = new Map(outOfScope.map((o) => [o.member_id, o.reason]));
+  const measuredCount = members.filter((m) => !oosById.has(m.id)).length;
   const [busy, setBusy] = useState("");
   const [staged, setStaged] = useState<File[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
@@ -539,13 +562,18 @@ function LeftPanel({
       const sev: Record<string, number> = { high: 0, med: 1, low: 2 };
       allReviews.sort((a, b) => (sev[a.severity] ?? 1) - (sev[b.severity] ?? 1));
       setReviews(allReviews);
+      // Report the gate honestly: how many of the read elements this
+      // discipline actually measured, and how many were set aside.
+      const after = await api.getBoq(pid);
+      const outside = (after.out_of_scope || []).length;
       const notes: string[] = [];
+      if (outside) notes.push(`${outside} outside ${dInfo.label} — set aside`);
       if (rejected) notes.push(`${rejected} need fixing`);
       if (unresolved) notes.push(`${unresolved} unresolved`);
       if (allReviews.length) notes.push(`${allReviews.length} AI suggestion(s)`);
       setBusy(
-        `Done. Extracted ${total} element(s) from ${list.length} file(s)` +
-          (notes.length ? ` (${notes.join(", ")} — review & edit below).` : ".")
+        `Done. Read ${total} element(s) from ${list.length} file(s); ${total - outside} measured in ${dInfo.label}` +
+          (notes.length ? ` (${notes.join("; ")}).` : ".")
       );
       setStaged([]);
     } catch (e: any) {
@@ -583,8 +611,12 @@ function LeftPanel({
             the take-off stays focused. Anything outside it is registered, not
             dropped (see the out-of-scope panel in the BOQ). */}
         <DisciplineGate discipline={discipline} onDiscipline={onDiscipline} />
-        <div className="card">
-          <label className="field">Upload drawing PDFs (you can select several)</label>
+        <div className="card step-card">
+          <div className="step-h">
+            <span className={`step-n ${staged.length || members.length ? "done" : "active"}`}>2</span>
+            <span className="step-t">Add drawings</span>
+            <span className="step-s">{staged.length ? `${staged.length} ready` : "PDF · several at once"}</span>
+          </div>
           <input
             type="file"
             accept="application/pdf"
@@ -619,15 +651,52 @@ function LeftPanel({
                   )}
                 </div>
               ))}
-              <button
-                className="primary"
-                style={{ marginTop: 8 }}
-                disabled={!staged.length || running}
-                onClick={runExtraction}
-              >
-                {running ? "Reading drawings…" : "⚙ Proceed — generate BOQ"}
-              </button>
             </div>
+          )}
+          {!hasKey && (
+            <div className="keyhint">
+              Reading drawings needs your Anthropic key.
+              <button className="link" onClick={onOpenKey}>🔑 Set AI key</button>
+              <span className="muted small"> · no key? try demo data in step 3</span>
+            </div>
+          )}
+        </div>
+
+        <div className="card step-card">
+          <div className="step-h">
+            <span className={`step-n ${running ? "active" : members.length ? "done" : staged.length ? "active" : "pending"}`}>3</span>
+            <span className="step-t">Generate BOQ</span>
+            <span className="step-s">{dInfo.icon} {dInfo.label}</span>
+          </div>
+          <button
+            className="primary gen-btn"
+            disabled={!staged.length || running || !hasKey}
+            onClick={runExtraction}
+            title={
+              !hasKey ? "Set your Anthropic key (step 2) to read drawings"
+              : !staged.length ? "Add at least one drawing in step 2"
+              : `Read the drawings and build the ${dInfo.label} BOQ`
+            }
+          >
+            {running ? "Reading drawings…" : `⚙ Generate ${dInfo.label} BOQ`}
+          </button>
+          {!running && (
+            <button
+              className="demo-btn"
+              onClick={async () => {
+                setBusy("Loading demo data…");
+                try {
+                  const res = await api.seedDemo(pid, discipline);
+                  setBusy(`Loaded demo: ${res.seeded_members} elements.`);
+                  onChange();
+                } catch (e: any) {
+                  setBusy("Error: " + e.message);
+                }
+              }}
+              title="No drawing handy? Seed realistic demo elements for this discipline"
+            >
+              ▶ Try with demo data
+            </button>
           )}
           {running && (() => {
             // Animated stage tracker parsed from the progress message.
@@ -655,34 +724,20 @@ function LeftPanel({
               </div>
             );
           })()}
-          {busy && <div className="muted" style={{ marginTop: 8 }}>{busy}</div>}
-          <div style={{ marginTop: 8 }} className="muted small">
-            Pick your PDFs, press <strong>Proceed</strong> — done.
-          </div>
+          {busy && <div className="muted small" style={{ marginTop: 8 }}>{busy}</div>}
+          {members.length > 0 && !running && (
+            <button className="link see-boq" onClick={onShowBoq}>See the BOQ →</button>
+          )}
           <details className="howit">
             <summary>How it works</summary>
             <div className="muted small">
               Claude reads every sheet in your browser with your <strong>🔑 AI
-              key</strong> (top right); each run starts a fresh BOQ, and every
-              extracted element is marked <em>review</em> so you stay in
-              control. No key? Use the chat or the manual form below.
+              key</strong> (top right), focused on the discipline you chose in
+              step 1; each run starts a fresh BOQ, and every extracted element
+              is marked <em>review</em> so you stay in control. Elements that
+              belong to another discipline are set aside, never dropped.
             </div>
           </details>
-          <button
-            style={{ marginTop: 8 }}
-            onClick={async () => {
-              setBusy("Loading demo data…");
-              try {
-                const res = await api.seedDemo(pid);
-                setBusy(`Loaded demo: ${res.seeded_members} elements.`);
-                onChange();
-              } catch (e: any) {
-                setBusy("Error: " + e.message);
-              }
-            }}
-          >
-            Load demo data
-          </button>
         </div>
 
         {reviews.length > 0 && (
@@ -717,10 +772,15 @@ function LeftPanel({
           </div>
         )}
 
-        <ManualAdd pid={pid} onChange={onChange} />
+        <ManualAdd pid={pid} discipline={discipline} onChange={onChange} />
 
         <div className="row" style={{ margin: "4px 0 8px" }}>
-          <span className="muted">{members.length} element(s)</span>
+          <span className="muted">
+            {members.length} element(s)
+            {outOfScope.length > 0 && (
+              <> · <strong>{measuredCount}</strong> in {dInfo.label} · {outOfScope.length} outside</>
+            )}
+          </span>
           <div className="spacer" />
           {members.some((m) => !m.is_verified) && (
             <button
@@ -737,8 +797,9 @@ function LeftPanel({
         </div>
         {members.map((m) => {
           const isEditing = editing === m.id;
+          const oosReason = oosById.get(m.id);
           return (
-            <div className={`card el-card cat-${TYPE_CAT[m.member_type] || "concrete"}`} key={m.id}>
+            <div className={`card el-card cat-${TYPE_CAT[m.member_type] || "concrete"}${oosReason ? " oos" : ""}`} key={m.id}>
               <div className="row">
                 <span className="el-ico" title={m.member_type}>
                   {TYPE_ICON[m.member_type] || "▫️"}
@@ -749,6 +810,9 @@ function LeftPanel({
                     <span className="el-src" title={`added via ${m.source}`}>
                       {m.source === "manual" ? "M" : m.source.toUpperCase()}
                     </span>
+                    {oosReason && (
+                      <span className="el-oos" title={oosReason}>outside {dInfo.label}</span>
+                    )}
                   </div>
                   <div className="el-spec">{specOf(m.member_type, m.params) || m.member_type}</div>
                 </div>
@@ -924,8 +988,9 @@ function formStateFromMember(p: any): { type: string; vals: Record<string, strin
 }
 
 function MemberForm({
-  initialType, initialVals, initialOpenings, initialSegments, submitLabel, onSubmit, onCancel,
+  discipline, initialType, initialVals, initialOpenings, initialSegments, submitLabel, onSubmit, onCancel,
 }: {
+  discipline?: string;
   initialType: string;
   initialVals: Record<string, string>;
   initialOpenings: Opening[];
@@ -1018,10 +1083,33 @@ function MemberForm({
   return (
     <>
       <select className="w" value={type} onChange={(e) => changeType(e.target.value)}>
-        {Object.keys(TYPE_LABELS).map((t) => (
-          <option key={t} value={t}>{TYPE_LABELS[t]}</option>
-        ))}
+        {(() => {
+          // Types the active discipline measures come first; the rest are
+          // offered but flagged, because they will be set aside by the gate.
+          const all = Object.keys(TYPE_LABELS);
+          const inD = discipline ? disciplineInfo(discipline).types.filter((t) => TYPE_LABELS[t]) : all;
+          const rest = all.filter((t) => !inD.includes(t));
+          return (
+            <>
+              <optgroup label={discipline ? `In ${disciplineInfo(discipline).label}` : "Element types"}>
+                {inD.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+              </optgroup>
+              {discipline && rest.length > 0 && (
+                <optgroup label="Other disciplines — will be set aside">
+                  {rest.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+                </optgroup>
+              )}
+            </>
+          );
+        })()}
       </select>
+      {discipline && !inScope(type, discipline) && (
+        <div className="oos-note">
+          {TYPE_LABELS[type]} is measured by{" "}
+          {disciplinesFor(type).map((d) => d.label).join(" or ") || "no pack yet"}, not{" "}
+          {disciplineInfo(discipline).label}. It will be added but listed as outside this discipline.
+        </div>
+      )}
 
       <div className="ffgrid" style={{ marginTop: 8 }}>
         <label className="ff">
@@ -1160,7 +1248,9 @@ function MemberForm({
   );
 }
 
-function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
+function ManualAdd({ pid, discipline, onChange }: { pid: number; discipline: Discipline; onChange: () => void }) {
+  // Open the form on a type the active discipline actually measures.
+  const firstType = disciplineInfo(discipline).types.find((t) => TYPE_LABELS[t]) || "column";
   // Collapsed by default — a dozen always-visible inputs was noise for the
   // common (upload/chat) paths.
   const [openForm, setOpenForm] = useState(false);
@@ -1179,8 +1269,9 @@ function ManualAdd({ pid, onChange }: { pid: number; onChange: () => void }) {
         <button className="link" onClick={() => setOpenForm(false)}>✕ close</button>
       </div>
       <MemberForm
-        initialType="column"
-        initialVals={defaultsFor("column")}
+        discipline={discipline}
+        initialType={firstType}
+        initialVals={defaultsFor(firstType)}
         initialOpenings={[]}
         initialSegments={[]}
         submitLabel="Add element"
@@ -1319,12 +1410,14 @@ function TopItems({ rows, onJump }: {
 }
 
 function CenterPanel({
-  pid, boq, rates, currency, onChange,
+  pid, boq, rates, currency, onDiscipline, onStart, onChange,
 }: {
   pid: number;
   boq: Boq | null;
   rates: RateRow[];
   currency: string;
+  onDiscipline: (d: Discipline) => void;
+  onStart: () => void;
   onChange: () => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -1452,23 +1545,65 @@ function CenterPanel({
     <div className="col center">
       <h2>Bill of Quantities</h2>
       <div className="scroll">
-        {boq.groups.length === 0 ? (
+        {boq.groups.length === 0 && (boq.out_of_scope || []).length > 0 ? (
+          // Elements exist but none belong to the active discipline. Say so
+          // plainly and offer the switch — the generic onboarding would be a lie.
+          (() => {
+            const active = disciplineInfo(boq.discipline);
+            const byOwner = new Map<string, number>();
+            for (const o of boq.out_of_scope) {
+              const owner = disciplinesFor(o.member_type)[0];
+              const k = owner ? owner.key : "none";
+              byOwner.set(k, (byOwner.get(k) || 0) + 1);
+            }
+            return (
+              <div className="onboard allout">
+                <h3>Nothing to measure in {active.label} yet</h3>
+                <div className="ob-sub">
+                  All {boq.out_of_scope.length} element(s) in this project belong to other
+                  disciplines, so the {active.label} BOQ is empty — not wrong, just focused.
+                </div>
+                <div className="allout-list">
+                  {[...byOwner.entries()].map(([k, n]) => {
+                    const d = disciplineInfo(k);
+                    return k === "none" ? (
+                      <div className="allout-row" key={k}>
+                        <span>{n} element(s) of types no pack measures yet</span>
+                      </div>
+                    ) : (
+                      <div className="allout-row" key={k}>
+                        <span>{d.icon} {n} element(s) measured by <strong>{d.label}</strong></span>
+                        <button className="primary" onClick={() => onDiscipline(d.key)}>
+                          Switch to {d.label} →
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="ob-cta">
+                  Or keep {active.label} and add its elements: upload drawings or use
+                  <b> ＋ Add element manually</b> on the left.
+                </div>
+              </div>
+            );
+          })()
+        ) : boq.groups.length === 0 ? (
           <div className="onboard">
             <h3>Let's build your Bill of Quantities</h3>
             <div className="ob-sub">Three steps from drawing to costed BOQ — no spreadsheets needed.</div>
             <div className="ob-steps">
               <div className="ob-step" style={{ animationDelay: "0ms" }}>
                 <span className="ob-num">01</span>
-                <div className="ob-ico">📐</div>
-                <div className="ob-title">Upload your drawings</div>
-                <div className="ob-desc">Drop the structural PDFs in the left panel — plans, sections, schedules, the whole set.</div>
+                <div className="ob-ico">🎯</div>
+                <div className="ob-title">Pick a discipline, add drawings</div>
+                <div className="ob-desc">Structure, Civil, Architecture or Interior — one at a time — then drop in the PDFs: plans, sections, schedules, the whole set.</div>
               </div>
               <div className="ob-arrow">➜</div>
               <div className="ob-step" style={{ animationDelay: "120ms" }}>
                 <span className="ob-num">02</span>
                 <div className="ob-ico">🤖</div>
                 <div className="ob-title">AI reads every sheet</div>
-                <div className="ob-desc">Press <strong>Proceed</strong> and Claude takes off every column, footing, beam and bar — then double-checks its own work.</div>
+                <div className="ob-desc">Press <strong>Generate BOQ</strong> and Claude takes off every element of that discipline — then double-checks its own work.</div>
               </div>
               <div className="ob-arrow">➜</div>
               <div className="ob-step" style={{ animationDelay: "240ms" }}>
@@ -1478,8 +1613,11 @@ function CenterPanel({
                 <div className="ob-desc">Tweak any element, set your rates, and export a tender-ready Excel or printable report.</div>
               </div>
             </div>
+            <button className="primary ob-start" onClick={onStart}>
+              Start → choose a discipline &amp; add drawings
+            </button>
             <div className="ob-cta">
-              No drawing handy? Hit <b>Load demo data</b> on the left — or just tell the
+              No drawing handy? Use <b>▶ Try with demo data</b> in step 3 — or tell the
               chat <em>"add 5 columns 300×600, 3 m high with 8-16 mm bars"</em>.
             </div>
           </div>

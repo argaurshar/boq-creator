@@ -4,7 +4,8 @@
 // still exists for local/Codespaces use, but this build does not need it.
 
 import { buildBoq, StoredMember, Boq, BoqItem, BoqGroup } from "./engine/boq";
-import { Discipline, DEFAULT_DISCIPLINE } from "./engine/disciplines";
+import { Discipline, DEFAULT_DISCIPLINE, disciplineInfo } from "./engine/disciplines";
+
 import { validateMember } from "./engine/members";
 import { computeMember } from "./engine/compute";
 import { roundQty } from "./engine/units";
@@ -13,6 +14,23 @@ import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
 import { claudeParseNl, claudeExtract, claudeReview, DEFAULT_MODEL } from "./engine/claude";
 import { downloadBoqXlsx } from "./engine/export";
+
+// Member-shape text contributed by discipline packs to the extraction prompt.
+// Packs register themselves here so api.ts stays ignorant of their internals.
+const PACK_PROMPT_SHAPES: string[] = [];
+export function registerPackPromptShapes(text: string): void {
+  if (text && !PACK_PROMPT_SHAPES.includes(text)) PACK_PROMPT_SHAPES.push(text);
+}
+function packPromptShapes(): string {
+  return PACK_PROMPT_SHAPES.join("\n\n");
+}
+const PACK_DEMO_MEMBERS: Record<string, any>[] = [];
+export function registerPackDemoMembers(list: Record<string, any>[]): void {
+  for (const m of list) if (!PACK_DEMO_MEMBERS.includes(m)) PACK_DEMO_MEMBERS.push(m);
+}
+function packDemoMembers(): Record<string, any>[] {
+  return PACK_DEMO_MEMBERS;
+}
 
 export type { Boq, BoqItem, BoqGroup };
 
@@ -239,7 +257,11 @@ export const api = {
   nlEdit: async (pid: number, text: string) => {
     const p = getProject(pid);
     const key = getApiKey();
-    const context = { currency: p.currency, default_grade: "M25" };
+    const discipline = p.discipline || DEFAULT_DISCIPLINE;
+    const context = {
+      currency: p.currency, default_grade: "M25",
+      discipline, discipline_types: disciplineInfo(discipline).types,
+    };
     let result: any;
     let provider: string;
     if (key) {
@@ -289,12 +311,17 @@ export const api = {
     const rejected: any[] = [];
     const unresolved: any[] = [];
     const reviews: any[] = [];
-    const ctx = { concrete_grade: "M25", cover_mm: 40, currency: p.currency };
+    const discipline = p.discipline || DEFAULT_DISCIPLINE;
+    const ctx = {
+      concrete_grade: "M25", cover_mm: 40, currency: p.currency,
+      discipline, discipline_types: disciplineInfo(discipline).types,
+    };
     for (const pg of pages) {
-      onProgress?.(`Reading ${file.name} — page ${pg.page_no}/${pages.length} with AI…`);
+      onProgress?.(`Reading ${file.name} — page ${pg.page_no}/${pages.length} with AI (${disciplineInfo(discipline).label})…`);
       const result = await claudeExtract({
         page_no: pg.page_no, page_text: pg.text, page_image_b64: pg.image_b64,
         scale: "unknown", context: ctx, apiKey: key, model: getModel(), onProgress,
+        discipline, extraShapes: packPromptShapes(),
       });
       // Save members, remembering id↔label↔type so review suggestions can target them.
       const savedThisPage: { id: number; label: string; member_type: string }[] = [];
@@ -337,10 +364,18 @@ export const api = {
     return { saved, rejected, unresolved, pages: pages.length, reviews };
   },
 
-  seedDemo: (pid: number) => {
-    getProject(pid);
+  seedDemo: (pid: number, discipline?: string) => {
+    const p = getProject(pid);
+    const d = discipline || p.discipline || DEFAULT_DISCIPLINE;
+    // Seed only elements the active discipline measures: a demo that lands
+    // mostly in the out-of-scope register teaches the wrong lesson.
+    const pool = [...DEMO_MEMBERS, ...packDemoMembers()]
+      .filter((raw) => disciplineInfo(d).types.includes(raw.member_type));
+    if (!pool.length) {
+      throw new Error(`No demo elements exist for ${disciplineInfo(d).label} yet.`);
+    }
     let added = 0;
-    for (const raw of DEMO_MEMBERS) {
+    for (const raw of pool) {
       addMemberInternal(pid, { ...raw, source: "manual" });
       added += 1;
     }

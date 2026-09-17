@@ -1,7 +1,8 @@
 // Direct browser -> Anthropic calls using the user's own key (entered in the
 // UI, kept in localStorage). The key never leaves the browser except to go to
 // Anthropic. Mirrors backend/app/ai/claude_provider.py.
-import { EXTRACT_PROMPT, NL_EDIT_PROMPT, REVIEW_PROMPT } from "./prompts";
+import { NL_EDIT_PROMPT, REVIEW_PROMPT, extractPrompt } from "./prompts";
+import { DEFAULT_DISCIPLINE } from "./disciplines";
 
 export const DEFAULT_MODEL = "claude-sonnet-4-6";
 const API_URL = "https://api.anthropic.com/v1/messages";
@@ -109,8 +110,13 @@ export async function claudeExtract(args: {
   page_no: number; page_text: string; page_image_b64: string | null;
   scale: string; context: Record<string, any>; apiKey: string;
   model?: string; onProgress?: (msg: string) => void;
+  /** Active discipline — scopes what the extractor treats as primary. */
+  discipline?: string;
+  /** Member-shape text contributed by discipline packs. */
+  extraShapes?: string;
 }): Promise<any> {
   const model = args.model || DEFAULT_MODEL;
+  const EXTRACT_PROMPT = extractPrompt(args.discipline || DEFAULT_DISCIPLINE, args.extraShapes || "");
   const base: Content = [];
   if (args.page_image_b64) {
     base.push({
