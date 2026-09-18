@@ -23,6 +23,7 @@ DISCIPLINES: list[dict[str, Any]] = [
                  "slabs, walls, trusses.",
         "types": ["footing", "column", "beam", "slab", "rcc_wall", "pcc",
                   "steel_member", "truss", "anchor_bolt", "earthwork_pit"],
+        "categories": ["earthwork", "concrete", "formwork", "rebar", "steel"],
     },
     {
         "key": "civil",
@@ -30,18 +31,29 @@ DISCIPLINES: list[dict[str, Any]] = [
         "blurb": "Site, substructure and external works — excavation, filling, "
                  "lean concrete.",
         "types": ["earthwork_pit", "pcc"],
+        "categories": ["earthwork", "concrete"],
     },
     {
         "key": "architecture",
         "label": "Architecture",
         "blurb": "Building fabric and finishes — masonry, plaster, roof covering.",
-        "types": ["brick_wall", "plaster_surface", "roof_sheeting"],
+        "types": ["brick_wall", "plaster_surface", "roof_sheeting",
+                  "flooring", "wall_tiling", "false_ceiling", "painting",
+                  "door_window", "waterproofing", "railing"],
+        "categories": ["masonry", "plaster", "roofing", "flooring", "skirting",
+                       "tiling", "ceiling", "painting", "doors_windows",
+                       "waterproofing", "railing"],
     },
     {
         "key": "interior",
         "label": "Interior",
         "blurb": "Fit-out — joinery, finishes, ceilings, loose furniture.",
-        "types": [],
+        "types": ["joinery", "glazing", "loose_furniture", "sanitary_fixture",
+                  "electrical_point", "flooring", "wall_tiling", "false_ceiling",
+                  "painting", "door_window"],
+        "categories": ["joinery", "furniture", "glazing", "sanitary", "services",
+                       "flooring", "skirting", "tiling", "ceiling", "painting",
+                       "doors_windows"],
     },
 ]
 

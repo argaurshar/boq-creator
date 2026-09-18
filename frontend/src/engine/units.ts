@@ -25,6 +25,7 @@ export const ROUNDING: Record<string, number> = {
   kg: 2,
   MT: 3,
   Nos: 0,
+  sqft: 2,
 };
 
 export function roundQty(value: number, unit: string): number {
@@ -88,7 +89,12 @@ export function qty(init: {
   };
 }
 
-// Format a mm dimension like Python's f"{v:.0f}".
+// Format a mm dimension like Python's f"{v:.0f}": correctly rounded, with an
+// exact binary tie (x.5) going to the even neighbour — Math.round would send
+// 2400.5 to 2401 where Python prints 2400, and descriptions must match.
 export function fmt0(v: number): string {
-  return String(Math.round(v));
+  const f = Math.floor(v);
+  const isTie = v - f === 0.5;
+  const r = isTie ? (f % 2 === 0 ? f : f + 1) : Math.round(v);
+  return String(r === 0 ? 0 : r);
 }

@@ -17,6 +17,8 @@ export interface DisciplineInfo {
   types: string[];
   /** Item groups the pack does NOT cover yet — surfaced in the UI verbatim. */
   notYet: string[];
+  /** BOQ categories those types produce — the rate rows worth showing first. */
+  categories: string[];
 }
 
 // A member type may legitimately belong to more than one discipline: foundation
@@ -33,6 +35,7 @@ export const DISCIPLINES: DisciplineInfo[] = [
       "steel_member", "truss", "anchor_bolt", "earthwork_pit",
     ],
     notYet: ["Staircases as a first-class type", "Retaining walls", "Precast elements"],
+    categories: ["earthwork", "concrete", "formwork", "rebar", "steel"],
   },
   {
     key: "civil",
@@ -44,17 +47,22 @@ export const DISCIPLINES: DisciplineInfo[] = [
       "Roads and pavements", "Drainage and manholes", "Boundary wall",
       "Anti-termite treatment", "Plinth protection", "Shoring and dewatering",
     ],
+    categories: ["earthwork", "concrete"],
   },
   {
     key: "architecture",
     label: "Architecture",
     icon: "🧱",
     blurb: "Building fabric and finishes — masonry, plaster, roof covering.",
-    types: ["brick_wall", "plaster_surface", "roof_sheeting"],
-    notYet: [
-      "Flooring and skirting", "Dado and wall tiling", "False ceiling",
-      "Painting by system and coat count", "Doors and windows from the schedule",
-      "Waterproofing", "Railings",
+    types: [
+      "brick_wall", "plaster_surface", "roof_sheeting",
+      "flooring", "wall_tiling", "false_ceiling", "painting", "door_window",
+      "waterproofing", "railing",
+    ],
+    notYet: ["External cladding systems", "Sloped-roof waterproofing", "Staircase finishes"],
+    categories: [
+      "masonry", "plaster", "roofing", "flooring", "skirting", "tiling", "ceiling",
+      "painting", "doors_windows", "waterproofing", "railing",
     ],
   },
   {
@@ -62,12 +70,14 @@ export const DISCIPLINES: DisciplineInfo[] = [
     label: "Interior",
     icon: "🛋️",
     blurb: "Fit-out — joinery, finishes, ceilings, loose furniture.",
-    types: [],
-    notYet: [
-      "Joinery (wardrobes, kitchen, storage, TV units)",
-      "False ceiling and cove", "Flooring and wall panelling",
-      "Painting", "Glazing and mirrors", "Sanitary and CP",
-      "Lighting and services interface", "Loose furniture",
+    types: [
+      "joinery", "glazing", "loose_furniture", "sanitary_fixture", "electrical_point",
+      "flooring", "wall_tiling", "false_ceiling", "painting", "door_window",
+    ],
+    notYet: ["Soft furnishings and curtains", "HVAC interface", "Handover cleaning"],
+    categories: [
+      "joinery", "furniture", "glazing", "sanitary", "services", "flooring",
+      "skirting", "tiling", "ceiling", "painting", "doors_windows",
     ],
   },
 ];

@@ -19,60 +19,12 @@ from pydantic import BaseModel, Field
 # --------------------------------------------------------------------------- #
 # Reusable sub-structures
 # --------------------------------------------------------------------------- #
-class BarGroup(BaseModel):
-    dia_mm: float = Field(gt=0)
-    count: int = 1
-
-
-class BarMesh(BaseModel):
-    """A one-direction mat of bars described by spacing."""
-
-    dia_mm: float = Field(gt=0)
-    spacing_mm: float = Field(gt=0)
-
-
-class StirrupZone(BaseModel):
-    spacing_mm: float = Field(gt=0)
-    length_mm: float = Field(ge=0)
-
-
-class Stirrups(BaseModel):
-    dia_mm: float = Field(gt=0)
-    legs: int = 2
-    spacing_mm: float | None = Field(default=None, gt=0)  # uniform spacing
-    zones: list[StirrupZone] = Field(default_factory=list)  # variable spacing
-
-
-class Opening(BaseModel):
-    width_mm: float
-    height_mm: float
-    count: int = 1
-
-
-class Region(BaseModel):
-    """Bounding box on a drawing page (for 'reference to drawing')."""
-
-    page_no: int = 1
-    x0: float = 0
-    y0: float = 0
-    x1: float = 0
-    y1: float = 0
-
-
-# --------------------------------------------------------------------------- #
-# Member base + concrete types
-# --------------------------------------------------------------------------- #
-class _MemberBase(BaseModel):
-    label: str = ""                      # "C1", "B3", "F2"
-    count: int = 1
-    concrete_grade: str = "M25"
-    steel_grade: str = "Fe500"
-    cover_mm: float = 40
-    region: Region | None = None
-    source: Literal["ai", "nl", "manual"] = "manual"
-    confidence: float = 1.0
-    evidence: str = ""
-    assumptions: list[str] = Field(default_factory=list)
+# Shared sub-structures and the member base live in a leaf module so the
+# discipline packs can import them without a circular import; re-exported here
+# so existing `from .member_schema import Opening` style imports keep working.
+from .member_base import (  # noqa: E402,F401
+    BarGroup, BarMesh, StirrupZone, Stirrups, Opening, Region, _MemberBase,
+)
 
 
 class Column(_MemberBase):
@@ -126,6 +78,8 @@ class RccWall(_MemberBase):
 
 class Pcc(_MemberBase):
     member_type: Literal["pcc"] = "pcc"
+    # Lean concrete is a bed, not a structural mix: M10 unless stated.
+    concrete_grade: str = "M10"
     length_mm: float
     breadth_mm: float
     thickness_mm: float
@@ -203,12 +157,18 @@ class RoofSheeting(_MemberBase):
     opening_area_m2: float = 0.0
 
 
+# Discipline packs are imported here, after _MemberBase exists, so the pack
+# schema modules can inherit from it without a circular-import failure.
+from .finishes_schema import FINISHES_TYPES  # noqa: E402
+from .interior_schema import INTERIOR_TYPES  # noqa: E402
+
 Member = Annotated[
-    Union[
+    Union[tuple([
         Column, Beam, Footing, Slab, RccWall, Pcc,
         BrickWall, PlasterSurface, EarthworkPit, SteelMember, Truss,
         AnchorBolt, RoofSheeting,
-    ],
+        *FINISHES_TYPES, *INTERIOR_TYPES,
+    ])],
     Field(discriminator="member_type"),
 ]
 

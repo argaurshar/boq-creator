@@ -8,6 +8,7 @@ import * as steel from "./steel";
 import * as roofing from "./roofing";
 import { Member } from "./members";
 import { Quantity } from "./units";
+import { PACK_REGISTRY, PACK_CATEGORIES } from "./packs";
 
 type Fn = (m: Member) => Quantity[];
 
@@ -25,6 +26,7 @@ const REGISTRY: Record<string, Fn[]> = {
   truss: [steel.truss],
   anchor_bolt: [steel.anchor_bolt],
   roof_sheeting: [roofing.roof_sheeting],
+  ...PACK_REGISTRY,
 };
 
 export function computeMember(member: Member): Quantity[] {
@@ -56,4 +58,5 @@ export const CATEGORY_ORDER: [string, string][] = [
   ["masonry", "Brickwork / Masonry"],
   ["plaster", "Plaster & Finishes"],
   ["roofing", "Roofing & Sheeting"],
+  ...PACK_CATEGORIES,
 ];

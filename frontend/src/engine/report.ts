@@ -4,11 +4,12 @@
 import { Boq } from "./boq";
 import { materialTakeoff } from "./takeoff";
 import { groupSerial, itemSerial, itemNameOf, specTextOf } from "./boqtable";
+import { disciplineInfo } from "./disciplines";
 
 interface ProjectLike {
   name?: string; client?: string; location?: string; currency?: string;
   prepared_by?: string; report_date?: string; drawing_ref?: string;
-  built_up_area_m2?: number;
+  built_up_area_m2?: number; contingency_pct?: number;
 }
 
 function esc(s: any): string {
@@ -29,6 +30,11 @@ const CAT_HEX: Record<string, string> = {
   earthwork: "#c98500", concrete: "#3987e5", formwork: "#d95926",
   rebar: "#d55181", steel: "#9085e9", masonry: "#e66767",
   plaster: "#199e70", roofing: "#008300", other: "#64748b",
+  // discipline packs
+  flooring: "#3987e5", skirting: "#1e93a6", tiling: "#d95926", ceiling: "#9085e9",
+  painting: "#d55181", doors_windows: "#c98500", waterproofing: "#7d9420",
+  railing: "#b46fc4", joinery: "#c47a5a", furniture: "#e66767", glazing: "#199e70",
+  sanitary: "#008300", services: "#7d9420",
 };
 const catHex = (c: string) => CAT_HEX[c] || CAT_HEX.other;
 
@@ -68,8 +74,15 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   const cur = project.currency || "INR";
   const total = boq.grand_total || 0;
   const area = Number(project.built_up_area_m2) || 0;
+  // Contingency is part of the estimate the user saw on screen; the printed
+  // figure must be the same one.
+  const contPct = Math.max(0, Number(project.contingency_pct) || 0);
+  const contAmt = total * contPct / 100;
+  const grand = total + contAmt;
+  const dInfo = disciplineInfo(boq.discipline);
 
   const metaRows: [string, string][] = [
+    ["Discipline", `${dInfo.label} take-off`],
     ["Client", project.client || "—"],
     ["Location", project.location || "—"],
     ["Drawing ref.", project.drawing_ref || "—"],
@@ -208,6 +221,7 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
     : "";
 
   const html = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BOQ — ${esc(project.name || "Project")}</title>
 <style>
   :root { --ink:#16202c; --mut:#5b6b80; --line:#cdd7e3; --accent:#2f6df0; }
@@ -238,6 +252,14 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   .signoff div { border-top:1px solid var(--ink); padding-top:6px; min-width:180px; }
   .foot { margin-top:26px; font-size:10px; color:var(--mut); border-top:1px solid var(--line); padding-top:8px; }
   @media print { body { padding: 0; } h2 { break-after: avoid; } tr { break-inside: avoid; } }
+  @media (max-width: 600px) {
+    body { padding: 14px 12px; }
+    .meta { grid-template-columns: 1fr 1fr; }
+    table { display: block; overflow-x: auto; white-space: nowrap; max-width: 100%; }
+    .signoff { flex-wrap: wrap; gap: 24px; }
+    .signoff div { min-width: 0; flex: 1 1 140px; }
+    .hdr { flex-wrap: wrap; gap: 6px; }
+  }
 </style></head><body>
   <div class="hdr">
     <div><h1>${esc(project.name || "Project")}</h1>
@@ -256,8 +278,10 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
       <table><thead><tr><th>Category</th><th class="r">Amount</th><th class="r">Share</th></tr></thead>
         <tbody>${abstract}</tbody></table>
       <div class="totbox"><table>
-        <tr><td>Grand total</td><td class="r grand">${esc(money(cur, total))}</td></tr>
-        ${area ? `<tr><td>Cost / m² built-up</td><td class="r">${esc(money(cur, total / area))}</td></tr>` : ""}
+        ${contPct > 0 ? `<tr><td>Sub-total</td><td class="r">${esc(money(cur, total))}</td></tr>
+        <tr><td>Contingency ${contPct}%</td><td class="r">${esc(money(cur, contAmt))}</td></tr>` : ""}
+        <tr><td>Grand total${contPct > 0 ? " incl. contingency" : ""}</td><td class="r grand">${esc(money(cur, grand))}</td></tr>
+        ${area ? `<tr><td>Cost / m² built-up</td><td class="r">${esc(money(cur, grand / area))}</td></tr>` : ""}
       </table></div>
     </div>
   </div>
@@ -302,10 +326,14 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
   const html = buildReportHtml(project, boq);
   const fname = `BOQ_${String(project.name || "Project").replace(/ /g, "_")}.html`;
 
+  const opener = document.activeElement as HTMLElement | null;
   const overlay = document.createElement("div");
   overlay.setAttribute("style",
     "position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);" +
     "display:flex;flex-direction:column;");
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Report preview");
 
   const bar = document.createElement("div");
   bar.setAttribute("style",
@@ -330,6 +358,7 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("style", "flex:1;width:100%;border:0;background:#fff;");
+  iframe.title = "Printable BOQ report";
   iframe.srcdoc = html;
 
   let url = "";
@@ -337,8 +366,17 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
     if (url) URL.revokeObjectURL(url);
     document.removeEventListener("keydown", onKey);
     overlay.remove();
+    opener?.focus?.();
   };
-  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cleanup(); };
+  // Escape closes; Tab cycles among the three toolbar buttons and the report.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { cleanup(); return; }
+    if (e.key !== "Tab") return;
+    const f: HTMLElement[] = [printBtn, dlBtn, closeBtn, iframe];
+    const i = f.indexOf(document.activeElement as HTMLElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+  };
 
   printBtn.onclick = () => {
     const w = iframe.contentWindow;
@@ -357,4 +395,5 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
   bar.append(printBtn, dlBtn, closeBtn);
   overlay.append(bar, iframe);
   document.body.appendChild(overlay);
+  printBtn.focus();
 }

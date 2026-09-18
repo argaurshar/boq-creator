@@ -41,7 +41,7 @@ def brick_wall(m) -> list[Quantity]:
     clamped = deductions >= gross and gross > 0
     net = max(gross - deductions, 0.0) * n
     bricks = net * mat.BRICKS_PER_M3
-    extra = {"bricks_est": round(bricks)}
+    extra = {"bricks_est": round(bricks), "thickness_mm": m.thickness_mm}
     desc = f"Brickwork {m.label} ({m.thickness_mm:.0f} mm thick)".strip()
     if clamped:
         desc += " — review: openings/embedded RCC ≥ wall volume"

@@ -1,5 +1,6 @@
 // AI system prompts, copied verbatim from backend/app/ai/prompts/*.md.
 // The AI ONLY extracts typed members; the deterministic engine does all math.
+import { disciplineInfo, DISCIPLINES } from "./disciplines";
 
 export const NL_EDIT_PROMPT = `You convert a single plain-English instruction from an engineer into ONE
 structured edit operation for an Indian (IS-code) BOQ tool.
@@ -21,6 +22,12 @@ mm; member_type one of: column, beam, footing, slab, rcc_wall, pcc, brick_wall,
 plaster_surface, earthwork_pit, steel_member, truss). Convert any units the user gives
 (m, cm, ft) to millimetres. Default concrete_grade to M25 if unspecified, cover
 to 40 mm for columns/footings and 25 mm for beams/slabs. Set source="nl".
+
+The project defaults name the ACTIVE DISCIPLINE and the member types it
+measures. Prefer those types when the instruction is ambiguous (e.g. "wall" is a
+brick_wall in Architecture but an rcc_wall in Structure). If the user clearly
+asks for a type outside the active discipline, still parse it faithfully — the
+app will set it aside and tell them — and say so in 'message'.
 
 If you cannot parse a member, return op="noop" with a helpful message.
 Output strictly valid JSON, no markdown, no commentary.`;
@@ -177,6 +184,93 @@ slopes), not one member's strip.
 - Never invent elements that are not on the page; never output a member_type not
   listed above.
 - Output strictly valid JSON. No markdown fences, no commentary.`;
+
+// ---------------------------------------------------------------------------
+// Discipline-scoped extraction.
+//
+// The user runs ONE discipline at a time. The extractor must know which, or it
+// reads a finishing drawing as a structural one and every element lands in the
+// out-of-scope register. extractPrompt() splices a FOCUS block into the base
+// prompt and appends the member shapes that discipline packs contribute.
+// ---------------------------------------------------------------------------
+const FOCUS_ANCHOR = "WHAT TO CAPTURE (map each to the closest member_type below):";
+const SHAPES_ANCHOR = "FOUNDATIONS — capture all three layers separately, never merge them:";
+
+export function focusBlock(discipline: string): string {
+  const info = disciplineInfo(discipline);
+  const others = DISCIPLINES.filter((d) => d.key !== info.key && d.types.length)
+    .map((d) => `${d.label}: ${d.types.join(", ")}`)
+    .join("; ");
+  const primary = info.types.length ? info.types.join(", ") : "(none defined yet)";
+  return `ACTIVE DISCIPLINE — the user is producing a ${info.label.toUpperCase()} take-off.
+${info.blurb}
+PRIMARY TARGETS (capture EVERY one, with ALL dimensions — these are what this run
+is for): ${primary}.
+SECONDARY (other disciplines: ${others || "none"}): capture an element of these
+types only when it is clearly legible on the page and costs you nothing; the app
+sets such elements aside in an "outside this discipline" register, so they must
+never crowd out or replace a primary target. Read the sheets that carry the
+primary targets first (for ${info.label}: ${sheetHint(info.key)}).
+
+`;
+}
+
+function sheetHint(key: string): string {
+  switch (key) {
+    case "structure":
+      return "foundation plan, column layout, beam/slab layouts, sections, column/footing/beam schedules, bar bending schedules, steel/truss details";
+    case "civil":
+      return "site plan, excavation plan and sections, levels, foundation plan for pit sizes";
+    case "architecture":
+      return "floor plans room by room, finishing schedule, door/window schedule, elevations, sections, toilet and wet-area details, roof plan";
+    case "interior":
+      return "furniture layout, ceiling (RCP) plan, wall elevations and joinery details, flooring pattern, electrical and lighting layout, toilet details";
+    default:
+      return "every sheet in the set";
+  }
+}
+
+/**
+ * Build the extraction system prompt for one discipline. `extraShapes` is the
+ * member-shape text contributed by discipline packs (finishes, interior…) so
+ * their types count as "listed above" for the strict-JSON rule.
+ */
+export function extractPrompt(discipline: string, extraShapes = ""): string {
+  let p = EXTRACT_PROMPT;
+  if (p.includes(FOCUS_ANCHOR)) p = p.replace(FOCUS_ANCHOR, focusBlock(discipline) + FOCUS_ANCHOR);
+  if (extraShapes.trim() && p.includes(SHAPES_ANCHOR)) {
+    p = p.replace(SHAPES_ANCHOR, extraShapes.trim() + "\n\n" + SHAPES_ANCHOR);
+  }
+  return p;
+}
+
+/** Every member type any discipline measures — the list the NL prompt may use. */
+function allMemberTypes(): string {
+  return Array.from(new Set(DISCIPLINES.flatMap((d) => d.types))).join(", ");
+}
+
+/**
+ * The chat (NL edit) system prompt for one discipline: the type list covers
+ * every pack, the active discipline is named, and the pack member shapes are
+ * appended so a "wardrobe 2400 wide" can be parsed as joinery — the base
+ * prompt alone only knew the structural shapes.
+ */
+export function nlPrompt(discipline: string, extraShapes = ""): string {
+  const info = disciplineInfo(discipline);
+  let p = NL_EDIT_PROMPT.replace(/member_type one of:[^)]*\)/, `member_type one of: ${allMemberTypes()})`);
+  p += `\n\nACTIVE DISCIPLINE: ${info.label} — it measures: ${info.types.join(", ")}.`;
+  if (extraShapes.trim()) {
+    p += `\n\nADDITIONAL MEMBER SHAPES (discipline packs — same rules as the structural shapes):\n${extraShapes.trim()}`;
+  }
+  return p;
+}
+
+/** The review prompt with the pack member shapes, so a suggested "add" can name them. */
+export function reviewPrompt(extraShapes = ""): string {
+  return extraShapes.trim()
+    ? `${REVIEW_PROMPT}\n\nMEMBER SHAPES the take-off may contain beyond the structural ones:\n${extraShapes.trim()}`
+    : REVIEW_PROMPT;
+}
 
 export const REVIEW_PROMPT = `You are a SENIOR QUANTITY SURVEYOR auditing an AI-generated take-off against the
 drawing. You are given the drawing page image and the ELEMENTS already extracted

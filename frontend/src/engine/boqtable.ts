@@ -10,6 +10,7 @@
 // programmatically. Everything else (member mark, sheet reference, formula,
 // nos/L/B/D) is row metadata reachable by drill-down, never an eighth column.
 import type { BoqItem } from "./boq";
+import { packItemNoun, packSpecText } from "./packs";
 
 export const BOQ_COLUMNS = [
   "Serial Number", "Item", "Description", "Quantity", "Rate", "Amount", "Specification",
@@ -58,7 +59,11 @@ const CATEGORY_NOUN: Record<string, string> = {
  * e.g. "RCC M25 — Columns", "Formwork — Footings", "Excavation".
  */
 export function itemNameOf(it: BoqItem): string {
-  const noun = TYPE_NOUN[it.member_type] || CATEGORY_NOUN[it.category] || it.category;
+  // Rows a pack type emits into a secondary category (e.g. a flooring member's
+  // skirting line) take their noun from the category, not the member.
+  if (it.category === "skirting") return "Skirting";
+  const noun = TYPE_NOUN[it.member_type] || packItemNoun(it)
+    || CATEGORY_NOUN[it.category] || it.category;
   const grade = String(it.extra?.grade || "").trim();
   switch (it.category) {
     case "concrete":
@@ -91,6 +96,8 @@ export function itemNameOf(it: BoqItem): string {
  * the engine actually recorded; never invented.
  */
 export function specTextOf(it: BoqItem): string {
+  const fromPack = packSpecText(it);
+  if (fromPack) return fromPack;
   const e = it.extra || {};
   const bits: string[] = [];
   const push = (v: any, fmt: (x: any) => string) => {

@@ -35,7 +35,27 @@ def _to_mm(value: float, unit: str | None) -> float:
 # e.g. "300x600", "300 x 600", "2000x2000x400"
 DIMS = re.compile(r"(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)(?:\s*[xX*]\s*(\d+(?:\.\d+)?))?")
 GRADE = re.compile(r"\bM\s?(\d{2})\b", re.I)
-COUNT = re.compile(r"(?:add|create)?\s*(\d+)\s+(column|beam|footing|slab|wall|brick\s*wall)", re.I)
+COUNT = re.compile(r"(?:add|create|excavate)?\s*(\d+)\s+(column|beam|footing|slab|wall|brick\s*wall|pcc|pit|plaster|roof|sheet)", re.I)
+DEPTH = re.compile(r"(\d+(?:\.\d+)?)\s*(m|cm|mm|ft)?\s*(?:deep|depth)", re.I)
+LAP = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*(?:lap|overlap)", re.I)
+FACES2 = re.compile(r"both\s*(?:sides?|faces?)|2\s*(?:sides?|faces?)|two\s*(?:sides?|faces?)")
+PITS = re.compile(r"\bpits?\b")
+
+# One worked example per discipline for the "couldn't parse" hint, so the
+# suggestion is something the active take-off would actually measure.
+HINTS = {
+    "structure": "Try e.g. 'add 5 columns 300x600 3m high with 8-16mm bars M25'.",
+    "civil": "Try e.g. 'excavate 4 pits 2000x2000 1.5m deep' or 'add 4 pcc 2000x2000 100 thick'.",
+    "architecture": "Try e.g. 'add 2 brick walls 4m long 3m high 230 thick with a 1200x2100 door' "
+                    "or 'plaster 4x3 both sides 12 thick'.",
+    "interior": "The key-free parser knows RCC, masonry, plaster and roofing only — set your AI key "
+                "for interior items, or use the add-element form.",
+}
+
+
+def _surf_mm(v: float) -> float:
+    """Surface dimensions typed as "4x3" are metres; "4000x3000" millimetres."""
+    return v * 1000 if v < 100 else v
 HEIGHT = re.compile(r"(\d+(?:\.\d+)?)\s*(m|cm|mm|ft|feet)?\s*(?:high|height|tall|ht)", re.I)
 SPAN = re.compile(r"(?:span|long|length)\s*(?:of)?\s*(\d+(?:\.\d+)?)\s*(m|cm|mm|ft)?", re.I)
 THICK = re.compile(r"(\d+(?:\.\d+)?)\s*(mm|cm|m)?\s*(?:thick|thk)", re.I)
@@ -61,6 +81,8 @@ class MockProvider(AIProvider):
         }
 
     def parse_nl_edit(self, *, text, context):
+        # Typed "×" (and its look-alikes) mean "x" in a dimension.
+        text = re.sub(r"[×✕✖]", "x", text)
         t = text.strip().lower()
         if t.startswith(("delete", "remove")):
             # The apply path only adds members; don't return a delete op the
@@ -72,10 +94,10 @@ class MockProvider(AIProvider):
             }
         member = self._parse_member(text)
         if member is None:
+            hint = HINTS.get((context or {}).get("discipline") or "", HINTS["structure"])
             return {
                 "op": "noop",
-                "message": "Sorry, I couldn't parse that. Try e.g. "
-                           "'add 5 columns 300x600 3m high with 8-16mm bars M25'.",
+                "message": f"Sorry, I couldn't parse that. {hint}",
             }
         return {
             "op": "add",
@@ -93,6 +115,36 @@ class MockProvider(AIProvider):
             count = int(cm.group(1))
 
         common = {"count": count, "concrete_grade": grade, "source": "nl", "confidence": 0.9}
+
+        if "pcc" in t or "lean concrete" in t:
+            d = DIMS.search(t)
+            th = THICK.search(t)
+            if not d:
+                return None
+            return {
+                "member_type": "pcc", "label": "PCC-nl",
+                "length_mm": _num(d.group(1)), "breadth_mm": _num(d.group(2)),
+                "thickness_mm": (_to_mm(_num(th.group(1)), th.group(2)) if th
+                                 else (_num(d.group(3)) if d.group(3) else 100)),
+                **common,
+                "concrete_grade": grade if GRADE.search(t) else "M10",
+            }
+
+        if "excavat" in t or "earthwork" in t or PITS.search(t):
+            d = DIMS.search(t)
+            dp = DEPTH.search(t)
+            if not d:
+                return None
+            depth = (_to_mm(_num(dp.group(1)), dp.group(2)) if dp
+                     else (_num(d.group(3)) if d.group(3) else None))
+            if depth is None:
+                return None
+            return {
+                "member_type": "earthwork_pit", "label": "E-nl",
+                "length_mm": _num(d.group(1)), "breadth_mm": _num(d.group(2)),
+                "depth_mm": depth, "count": count,
+                "source": "nl", "confidence": 0.85,
+            }
 
         if "column" in t:
             d = DIMS.search(t)
@@ -148,6 +200,39 @@ class MockProvider(AIProvider):
                 "length_mm": _num(d.group(1)), "breadth_mm": _num(d.group(2)),
                 "thickness_mm": _to_mm(_num(th.group(1)), th.group(2)) if th else 125,
                 **common,
+            }
+
+        if "plaster" in t:
+            d = DIMS.search(t)
+            h = HEIGHT.search(t)
+            sp = SPAN.search(t)
+            th = THICK.search(t)
+            length = (_to_mm(_num(sp.group(1)), sp.group(2)) if sp
+                      else (_surf_mm(_num(d.group(1))) if d else None))
+            if length is None:
+                return None
+            return {
+                "member_type": "plaster_surface", "label": "PL-nl",
+                "length_mm": length,
+                "height_mm": (_to_mm(_num(h.group(1)), h.group(2)) if h
+                              else (_surf_mm(_num(d.group(2))) if d else 3000)),
+                "thickness_mm": _to_mm(_num(th.group(1)), th.group(2)) if th else 12,
+                "faces": 2 if FACES2.search(t) else 1,
+                "openings": self._openings(t),
+                "count": count, "source": "nl", "confidence": 0.85,
+            }
+
+        if "roof" in t or "sheet" in t:
+            d = DIMS.search(t)
+            lap = LAP.search(t)
+            if not d:
+                return None
+            return {
+                "member_type": "roof_sheeting", "label": "R-nl",
+                "length_mm": _surf_mm(_num(d.group(1))),
+                "breadth_mm": _surf_mm(_num(d.group(2))),
+                "lap_pct": _num(lap.group(1)) if lap else 0,
+                "count": count, "source": "nl", "confidence": 0.85,
             }
 
         if "brick" in t or "wall" in t:

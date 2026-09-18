@@ -4,7 +4,10 @@
 // still exists for local/Codespaces use, but this build does not need it.
 
 import { buildBoq, StoredMember, Boq, BoqItem, BoqGroup } from "./engine/boq";
-import { Discipline, DEFAULT_DISCIPLINE } from "./engine/disciplines";
+import {
+  Discipline, DEFAULT_DISCIPLINE, disciplineInfo, inScope, outOfScopeReason,
+} from "./engine/disciplines";
+
 import { validateMember } from "./engine/members";
 import { computeMember } from "./engine/compute";
 import { roundQty } from "./engine/units";
@@ -13,6 +16,16 @@ import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
 import { claudeParseNl, claudeExtract, claudeReview, DEFAULT_MODEL } from "./engine/claude";
 import { downloadBoqXlsx } from "./engine/export";
+import {
+  PACK_PROMPT_SHAPES, PACK_DEMO_MEMBERS, PACK_UNITS, PACK_DEMO_RATES,
+} from "./engine/packs";
+
+// Discipline packs contribute extraction-prompt shapes, demo elements, units
+// and indicative rates; packs.ts merges them so api.ts never imports a pack.
+function packPromptShapes(): string { return PACK_PROMPT_SHAPES; }
+function packDemoMembers(): Record<string, any>[] { return PACK_DEMO_MEMBERS; }
+const ALL_UNITS: Record<string, string> = { ...DEFAULT_UNITS, ...PACK_UNITS };
+const ALL_DEMO_RATES: Record<string, number> = { ...DEMO_RATES, ...PACK_DEMO_RATES };
 
 export type { Boq, BoqItem, BoqGroup };
 
@@ -28,6 +41,9 @@ export interface Project {
   built_up_area_m2?: number;
   /** Active take-off discipline — exactly one per run (the discipline gate). */
   discipline?: Discipline;
+  /** Contingency added on top of the grand total — persisted so the printed
+   *  report and the workbook show the same figure as the screen. */
+  contingency_pct?: number;
 }
 
 export interface RateRow {
@@ -224,30 +240,36 @@ export const api = {
     getProject(pid);
     const r = store.rates[pid] || {};
     return ok(CATEGORY_ORDER.map(([category, label]) => ({
-      category, label, unit: DEFAULT_UNITS[category] || "", rate: r[category] ?? 0,
+      category, label, unit: ALL_UNITS[category] || "", rate: r[category] ?? 0,
     })));
   },
 
   setRate: (pid: number, category: string, rate: number) => {
     getProject(pid);
     if (!KNOWN_CATS.has(category)) throw new Error(`Unknown category '${category}'`);
-    (store.rates[pid] ||= {})[category] = rate;
+    // A negative or non-numeric rate can never be right; clamp rather than store it.
+    const r = Math.max(0, Number(rate) || 0);
+    (store.rates[pid] ||= {})[category] = r;
     save();
-    return ok({ category, rate });
+    return ok({ category, rate: r });
   },
 
   nlEdit: async (pid: number, text: string) => {
     const p = getProject(pid);
     const key = getApiKey();
-    const context = { currency: p.currency, default_grade: "M25" };
+    const discipline = p.discipline || DEFAULT_DISCIPLINE;
+    const context = {
+      currency: p.currency, default_grade: "M25",
+      discipline, discipline_types: disciplineInfo(discipline).types,
+    };
     let result: any;
     let provider: string;
     if (key) {
       provider = "claude";
-      result = await claudeParseNl(text, context, key, getModel());
+      result = await claudeParseNl(text, context, key, getModel(), packPromptShapes());
     } else {
       provider = "mock";
-      result = mockParseNl(text);
+      result = mockParseNl(text, discipline);
     }
     let preview: any = null;
     if (result.op === "add" && result.member) {
@@ -259,6 +281,12 @@ export const api = {
             category: q.category, unit: q.unit, rounded: roundQty(q.value, q.unit),
           })),
         };
+        // Say so before Apply if the element would land outside the active
+        // discipline — it will be registered, not measured.
+        if (!inScope(m.member_type, discipline)) {
+          preview.out_of_scope = outOfScopeReason(m.member_type, discipline);
+          result.message += ` Note: ${preview.out_of_scope}`;
+        }
       } catch (e: any) {
         result.op = "noop";
         result.message = "Parsed but invalid: " + (e.message || e);
@@ -289,12 +317,17 @@ export const api = {
     const rejected: any[] = [];
     const unresolved: any[] = [];
     const reviews: any[] = [];
-    const ctx = { concrete_grade: "M25", cover_mm: 40, currency: p.currency };
+    const discipline = p.discipline || DEFAULT_DISCIPLINE;
+    const ctx = {
+      concrete_grade: "M25", cover_mm: 40, currency: p.currency,
+      discipline, discipline_types: disciplineInfo(discipline).types,
+    };
     for (const pg of pages) {
-      onProgress?.(`Reading ${file.name} — page ${pg.page_no}/${pages.length} with AI…`);
+      onProgress?.(`Reading ${file.name} — page ${pg.page_no}/${pages.length} with AI (${disciplineInfo(discipline).label})…`);
       const result = await claudeExtract({
         page_no: pg.page_no, page_text: pg.text, page_image_b64: pg.image_b64,
         scale: "unknown", context: ctx, apiKey: key, model: getModel(), onProgress,
+        discipline, extraShapes: packPromptShapes(),
       });
       // Save members, remembering id↔label↔type so review suggestions can target them.
       const savedThisPage: { id: number; label: string; member_type: string }[] = [];
@@ -315,6 +348,7 @@ export const api = {
         const sugg = await claudeReview({
           page_no: pg.page_no, page_image_b64: pg.image_b64,
           members: result.members || [], context: ctx, apiKey: key, model: getModel(),
+          extraShapes: packPromptShapes(),
         });
         for (const r of sugg) {
           const lbl = String(r.target_label || "").trim().toLowerCase();
@@ -337,19 +371,30 @@ export const api = {
     return { saved, rejected, unresolved, pages: pages.length, reviews };
   },
 
-  seedDemo: (pid: number) => {
-    getProject(pid);
+  seedDemo: (pid: number, discipline?: string) => {
+    const p = getProject(pid);
+    const d = discipline || p.discipline || DEFAULT_DISCIPLINE;
+    // Seed only elements the active discipline measures: a demo that lands
+    // mostly in the out-of-scope register teaches the wrong lesson.
+    const pool = [...DEMO_MEMBERS, ...packDemoMembers()]
+      .filter((raw) => disciplineInfo(d).types.includes(raw.member_type));
+    if (!pool.length) {
+      throw new Error(`No demo elements exist for ${disciplineInfo(d).label} yet.`);
+    }
+    // Idempotent: a second click must not double every element.
+    const have = new Set((store.members[pid] || []).map((m) => `${m.member_type}|${m.label}`));
     let added = 0;
-    for (const raw of DEMO_MEMBERS) {
+    for (const raw of pool) {
+      if (have.has(`${raw.member_type}|${raw.label}`)) continue;
       addMemberInternal(pid, { ...raw, source: "manual" });
       added += 1;
     }
     const r = (store.rates[pid] ||= {});
-    for (const [cat, rate] of Object.entries(DEMO_RATES)) {
+    for (const [cat, rate] of Object.entries(ALL_DEMO_RATES)) {
       if (r[cat] === undefined) r[cat] = rate;
     }
     save();
-    return ok({ seeded_members: added });
+    return ok({ seeded_members: added, skipped: pool.length - added });
   },
 
   exportXlsx: async (pid: number) => {

@@ -31,7 +31,7 @@ export function brick_wall(m: Member): Quantity[] {
   const clamped = deductions >= gross && gross > 0;
   const net = Math.max(gross - deductions, 0.0) * n;
   const bricks = net * mat.BRICKS_PER_M3;
-  const extra: Record<string, any> = { bricks_est: pyRound(bricks, 0) };
+  const extra: Record<string, any> = { bricks_est: pyRound(bricks, 0), thickness_mm: m.thickness_mm };
   let desc = `Brickwork ${m.label} (${fmt0(m.thickness_mm)} mm thick)`.trim();
   if (clamped) {
     desc += " — review: openings/embedded RCC ≥ wall volume";
