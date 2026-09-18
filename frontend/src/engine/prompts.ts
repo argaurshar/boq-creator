@@ -244,6 +244,34 @@ export function extractPrompt(discipline: string, extraShapes = ""): string {
   return p;
 }
 
+/** Every member type any discipline measures — the list the NL prompt may use. */
+function allMemberTypes(): string {
+  return Array.from(new Set(DISCIPLINES.flatMap((d) => d.types))).join(", ");
+}
+
+/**
+ * The chat (NL edit) system prompt for one discipline: the type list covers
+ * every pack, the active discipline is named, and the pack member shapes are
+ * appended so a "wardrobe 2400 wide" can be parsed as joinery — the base
+ * prompt alone only knew the structural shapes.
+ */
+export function nlPrompt(discipline: string, extraShapes = ""): string {
+  const info = disciplineInfo(discipline);
+  let p = NL_EDIT_PROMPT.replace(/member_type one of:[^)]*\)/, `member_type one of: ${allMemberTypes()})`);
+  p += `\n\nACTIVE DISCIPLINE: ${info.label} — it measures: ${info.types.join(", ")}.`;
+  if (extraShapes.trim()) {
+    p += `\n\nADDITIONAL MEMBER SHAPES (discipline packs — same rules as the structural shapes):\n${extraShapes.trim()}`;
+  }
+  return p;
+}
+
+/** The review prompt with the pack member shapes, so a suggested "add" can name them. */
+export function reviewPrompt(extraShapes = ""): string {
+  return extraShapes.trim()
+    ? `${REVIEW_PROMPT}\n\nMEMBER SHAPES the take-off may contain beyond the structural ones:\n${extraShapes.trim()}`
+    : REVIEW_PROMPT;
+}
+
 export const REVIEW_PROMPT = `You are a SENIOR QUANTITY SURVEYOR auditing an AI-generated take-off against the
 drawing. You are given the drawing page image and the ELEMENTS already extracted
 from it (as JSON). Your job is to catch ERRORS and OMISSIONS in that take-off.

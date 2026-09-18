@@ -15,6 +15,9 @@ Return ONLY a single JSON object:
 
 The <Member> uses the same shapes documented for extraction (all dimensions in
 mm; member_type one of: column, beam, footing, slab, rcc_wall, pcc, brick_wall,
+roof_sheeting, anchor_bolt, flooring, wall_tiling, false_ceiling, painting,
+door_window, waterproofing, railing, joinery, glazing, loose_furniture,
+sanitary_fixture, electrical_point,
 plaster_surface, earthwork_pit, steel_member). Convert any units the user gives
 (m, cm, ft) to millimetres. Default concrete_grade to M25 if unspecified, cover
 to 40 mm for columns/footings and 25 mm for beams/slabs. Set source="nl".

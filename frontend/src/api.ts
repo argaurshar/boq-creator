@@ -266,7 +266,7 @@ export const api = {
     let provider: string;
     if (key) {
       provider = "claude";
-      result = await claudeParseNl(text, context, key, getModel());
+      result = await claudeParseNl(text, context, key, getModel(), packPromptShapes());
     } else {
       provider = "mock";
       result = mockParseNl(text, discipline);
@@ -348,6 +348,7 @@ export const api = {
         const sugg = await claudeReview({
           page_no: pg.page_no, page_image_b64: pg.image_b64,
           members: result.members || [], context: ctx, apiKey: key, model: getModel(),
+          extraShapes: packPromptShapes(),
         });
         for (const r of sugg) {
           const lbl = String(r.target_label || "").trim().toLowerCase();

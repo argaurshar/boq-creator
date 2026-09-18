@@ -111,3 +111,14 @@ UNITS = {"joinery": "sqft", "furniture": "Nos", "glazing": "sqft",
 
 DEMO_RATES = {"joinery": 1450, "furniture": 25000, "glazing": 650,
               "sanitary": 12000, "services": 850}
+
+# Demo elements — identical to the pack's DEMO_MEMBERS in the TypeScript
+# engine, so the seed endpoint and the static build show the same demo.
+DEMO_MEMBERS: list[dict] = [
+    {"member_type": "joinery", "label": "JN1", "count": 2, "width_mm": 2400, "height_mm": 2400, "depth_mm": 600, "joinery_type": "wardrobe", "carcass": "BWP ply 18 mm", "shutter_finish": "laminate 1 mm", "hardware": "soft-close, SS"},
+    {"member_type": "joinery", "label": "JN2", "count": 1, "width_mm": 3000, "height_mm": 850, "depth_mm": 600, "joinery_type": "kitchen_base", "carcass": "BWP ply 18 mm", "shutter_finish": "acrylic 1 mm", "hardware": "soft-close, SS"},
+    {"member_type": "glazing", "label": "GL1", "count": 2, "width_mm": 1200, "height_mm": 1800, "kind": "mirror", "glass_type": "6 mm mirror"},
+    {"member_type": "loose_furniture", "label": "LF1", "count": 1, "item": "3-seater sofa", "finish": "fabric"},
+    {"member_type": "sanitary_fixture", "label": "SN1", "count": 2, "fixture": "WC", "make": ""},
+    {"member_type": "electrical_point", "label": "EP1", "count": 12, "point_type": "6A socket"},
+]

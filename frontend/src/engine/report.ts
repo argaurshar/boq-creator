@@ -221,6 +221,7 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
     : "";
 
   const html = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BOQ — ${esc(project.name || "Project")}</title>
 <style>
   :root { --ink:#16202c; --mut:#5b6b80; --line:#cdd7e3; --accent:#2f6df0; }
@@ -251,6 +252,14 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   .signoff div { border-top:1px solid var(--ink); padding-top:6px; min-width:180px; }
   .foot { margin-top:26px; font-size:10px; color:var(--mut); border-top:1px solid var(--line); padding-top:8px; }
   @media print { body { padding: 0; } h2 { break-after: avoid; } tr { break-inside: avoid; } }
+  @media (max-width: 600px) {
+    body { padding: 14px 12px; }
+    .meta { grid-template-columns: 1fr 1fr; }
+    table { display: block; overflow-x: auto; white-space: nowrap; max-width: 100%; }
+    .signoff { flex-wrap: wrap; gap: 24px; }
+    .signoff div { min-width: 0; flex: 1 1 140px; }
+    .hdr { flex-wrap: wrap; gap: 6px; }
+  }
 </style></head><body>
   <div class="hdr">
     <div><h1>${esc(project.name || "Project")}</h1>
@@ -317,10 +326,14 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
   const html = buildReportHtml(project, boq);
   const fname = `BOQ_${String(project.name || "Project").replace(/ /g, "_")}.html`;
 
+  const opener = document.activeElement as HTMLElement | null;
   const overlay = document.createElement("div");
   overlay.setAttribute("style",
     "position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);" +
     "display:flex;flex-direction:column;");
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Report preview");
 
   const bar = document.createElement("div");
   bar.setAttribute("style",
@@ -345,6 +358,7 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("style", "flex:1;width:100%;border:0;background:#fff;");
+  iframe.title = "Printable BOQ report";
   iframe.srcdoc = html;
 
   let url = "";
@@ -352,8 +366,17 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
     if (url) URL.revokeObjectURL(url);
     document.removeEventListener("keydown", onKey);
     overlay.remove();
+    opener?.focus?.();
   };
-  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cleanup(); };
+  // Escape closes; Tab cycles among the three toolbar buttons and the report.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { cleanup(); return; }
+    if (e.key !== "Tab") return;
+    const f: HTMLElement[] = [printBtn, dlBtn, closeBtn, iframe];
+    const i = f.indexOf(document.activeElement as HTMLElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+  };
 
   printBtn.onclick = () => {
     const w = iframe.contentWindow;
@@ -372,4 +395,5 @@ export function openBoqReport(project: ProjectLike, boq: Boq): void {
   bar.append(printBtn, dlBtn, closeBtn);
   overlay.append(bar, iframe);
   document.body.appendChild(overlay);
+  printBtn.focus();
 }

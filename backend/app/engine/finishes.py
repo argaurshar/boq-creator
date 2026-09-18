@@ -213,3 +213,15 @@ DEMO_RATES = {
     "flooring": 1200, "skirting": 150, "tiling": 1100, "ceiling": 950, "painting": 180,
     "doors_windows": 8500, "waterproofing": 450, "railing": 2200,
 }
+
+# Demo elements — identical to the pack's DEMO_MEMBERS in the TypeScript
+# engine, so the seed endpoint and the static build show the same demo.
+DEMO_MEMBERS: list[dict] = [
+    {"member_type": "flooring", "label": "FL1 Living", "length_mm": 4500, "breadth_mm": 4000, "count": 1, "deduct_area_m2": 0, "skirting_height_mm": 100, "finish": "600x600 vitrified tiles", "bedding_mm": 20},
+    {"member_type": "wall_tiling", "label": "WT1 Toilet", "length_mm": 7200, "height_mm": 2100, "count": 2, "openings": [{"width_mm": 750, "height_mm": 2100, "count": 1}], "finish": "300x600 ceramic tiles"},
+    {"member_type": "false_ceiling", "label": "FC1 Living", "length_mm": 4500, "breadth_mm": 4000, "count": 1, "cutout_area_m2": 0.36, "ceiling_type": "gypsum", "cove_length_mm": 17000},
+    {"member_type": "painting", "label": "PT1 Internal walls", "length_mm": 17000, "height_mm": 3000, "faces": 1, "count": 1, "coats": 2, "paint_system": "acrylic emulsion", "surface": "internal", "openings": [{"width_mm": 1000, "height_mm": 2100, "count": 1}, {"width_mm": 1200, "height_mm": 1200, "count": 2}]},
+    {"member_type": "door_window", "label": "D1", "width_mm": 900, "height_mm": 2100, "count": 4, "kind": "door", "frame_material": "hardwood", "shutter_material": "flush shutter"},
+    {"member_type": "waterproofing", "label": "WP1 Toilet sunk", "length_mm": 2100, "breadth_mm": 1500, "count": 2, "upturn_height_mm": 300, "treatment": "APP membrane 3 mm"},
+    {"member_type": "railing", "label": "RL1 Balcony", "length_mm": 3500, "height_mm": 900, "count": 2, "material": "MS"},
+]

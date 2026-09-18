@@ -36,10 +36,12 @@ const CLAUSE_ELECTRICAL = "IS 1200 Part 18";
 // Private copies of the validation helpers in members.ts (not exported there).
 function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number; int?: boolean } = {}): number | null {
   let v = raw?.[key];
-  if (v === undefined || v === null || v === "") {
+  if (v === undefined || v === null) {
     if (opts.required) throw new Error(`Field '${key}' is required`);
     return opts.def ?? null;
   }
+  // "" is not a number here, exactly as in the Python schemas.
+  if (v === "") throw new Error(`Field '${key}' must be a number`);
   v = Number(v);
   if (!isFinite(v)) throw new Error(`Field '${key}' must be a number`);
   if (opts.gt0 && !(v > 0)) throw new Error(`Field '${key}' must be > 0`);
@@ -67,8 +69,10 @@ function blank(v: any): boolean {
 
 // Free-text spec field: blank -> default, else the trimmed string.
 function text(raw: any, key: string, def: string): string {
+  // Absent -> default; a deliberately blank string stays blank (as in
+  // interior_schema.py) so the spec never invents a finish the user cleared.
   const v = raw?.[key];
-  return blank(v) ? def : String(v).trim();
+  return v === undefined || v === null ? def : String(v).trim();
 }
 
 // Enumerated field. Matching ignores case, spaces, underscores and hyphens so

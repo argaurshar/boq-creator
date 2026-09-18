@@ -1,7 +1,7 @@
 // Direct browser -> Anthropic calls using the user's own key (entered in the
 // UI, kept in localStorage). The key never leaves the browser except to go to
 // Anthropic. Mirrors backend/app/ai/claude_provider.py.
-import { NL_EDIT_PROMPT, REVIEW_PROMPT, extractPrompt } from "./prompts";
+import { extractPrompt, nlPrompt, reviewPrompt } from "./prompts";
 import { DEFAULT_DISCIPLINE } from "./disciplines";
 
 export const DEFAULT_MODEL = "claude-sonnet-4-6";
@@ -81,13 +81,15 @@ export async function claudeParseNl(
   text: string,
   context: Record<string, any>,
   apiKey: string,
-  model: string = DEFAULT_MODEL
+  model: string = DEFAULT_MODEL,
+  extraShapes = ""
 ): Promise<any> {
   const content: Content = [{
     type: "text",
     text: `Project defaults: ${JSON.stringify(context)}\n\nInstruction:\n${text}`,
   }];
-  return jsonCall(NL_EDIT_PROMPT, content, apiKey, model, 8000);
+  const discipline = String(context?.discipline || DEFAULT_DISCIPLINE);
+  return jsonCall(nlPrompt(discipline, extraShapes), content, apiKey, model, 8000);
 }
 
 function dedupeMembers(lists: any[][]): any[] {
@@ -173,7 +175,7 @@ export async function claudeExtract(args: {
 // Best-effort — returns [] on any failure so it never breaks extraction.
 export async function claudeReview(args: {
   page_no: number; page_image_b64: string | null; members: any[];
-  context: Record<string, any>; apiKey: string; model?: string;
+  context: Record<string, any>; apiKey: string; model?: string; extraShapes?: string;
 }): Promise<any[]> {
   if (!args.page_image_b64 || !(args.members || []).length) return [];
   const model = args.model || DEFAULT_MODEL;
@@ -189,7 +191,7 @@ export async function claudeReview(args: {
     },
   ];
   try {
-    const res = await jsonCall(REVIEW_PROMPT, content, args.apiKey, model, 12000);
+    const res = await jsonCall(reviewPrompt(args.extraShapes || ""), content, args.apiKey, model, 12000);
     const reviews = Array.isArray(res?.reviews) ? res.reviews : [];
     return reviews.filter((r: any) => r && r.op && r.op !== "ok");
   } catch {

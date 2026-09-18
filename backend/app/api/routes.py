@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import services
-from ..engine.disciplines import DEFAULT_DISCIPLINE
+from ..engine.disciplines import DEFAULT_DISCIPLINE, discipline_info
 from ..ai import get_provider
 from ..config import settings
 from ..db import get_db
@@ -47,6 +47,9 @@ class RateIn(BaseModel):
 
 class NlIn(BaseModel):
     text: str
+    # Active discipline: steers the parser's defaults and its "couldn't parse"
+    # hint (the key-free parser is discipline-aware).
+    discipline: str | None = None
 
 
 class ScaleIn(BaseModel):
@@ -303,11 +306,12 @@ def get_boq(pid: int, discipline: str = DEFAULT_DISCIPLINE,
 
 @router.get("/projects/{pid}/export/xlsx")
 def export_xlsx(pid: int, discipline: str = DEFAULT_DISCIPLINE,
+                contingency_pct: float = 0.0,
                 db: Session = Depends(get_db)):
     p = _get_project(db, pid)
     rows = db.query(Member).filter_by(project_id=pid).order_by(Member.id).all()
     boq = services.build_boq(rows, _rate_map(db, pid), discipline)
-    data = build_workbook(_project_dict(p), boq)
+    data = build_workbook({**_project_dict(p), "contingency_pct": contingency_pct}, boq)
     fname = f"BOQ_{p.name.replace(' ', '_')}.xlsx"
     return Response(
         content=data,
@@ -372,9 +376,12 @@ def nl_edit(
     p = _get_project(db, pid)
     provider = get_provider(x_anthropic_api_key)
     try:
+        discipline = body.discipline or DEFAULT_DISCIPLINE
         result = provider.parse_nl_edit(
             text=body.text,
-            context={"currency": p.currency, "default_grade": "M25"})
+            context={"currency": p.currency, "default_grade": "M25",
+                     "discipline": discipline,
+                     "discipline_types": discipline_info(discipline)["types"]})
     except Exception as exc:  # surface auth/quota/network errors as a clear 502
         raise HTTPException(502, f"AI parsing failed: {exc}")
 
@@ -461,12 +468,26 @@ _DEMO_RATES = {"earthwork": 350, "concrete": 6500, "formwork": 450, "rebar": 75,
 
 
 @router.post("/projects/{pid}/seed")
-def seed_demo(pid: int, db: Session = Depends(get_db)):
-    """Populate the project with a representative G+0 frame so reviewers can see
-    a full multi-category BOQ + Excel export without uploading a drawing."""
+def seed_demo(pid: int, discipline: str | None = None,
+              db: Session = Depends(get_db)):
+    """Populate the project with representative demo elements so reviewers can
+    see a full multi-category BOQ + Excel export without uploading a drawing.
+
+    With `discipline`, only the elements that discipline measures are seeded
+    (mirrors the static build's seedDemo); without it, every demo element is.
+    Idempotent: an element whose (member_type, label) already exists is skipped.
+    """
     _get_project(db, pid)
+    pool = [*_DEMO_MEMBERS, *finishes.DEMO_MEMBERS, *interior.DEMO_MEMBERS]
+    if discipline:
+        allowed = set(discipline_info(discipline)["types"])
+        pool = [raw for raw in pool if raw["member_type"] in allowed]
+    have = {(m.member_type, m.label)
+            for m in db.query(Member).filter_by(project_id=pid)}
     added = 0
-    for raw in _DEMO_MEMBERS:
+    for raw in pool:
+        if (raw["member_type"], raw.get("label", "")) in have:
+            continue
         m = services.validate_member({**raw, "source": "manual"})
         db.add(Member(project_id=pid, member_type=m.member_type, label=m.label,
                       params=m.model_dump(), source="manual", confidence=1.0,
@@ -477,4 +498,4 @@ def seed_demo(pid: int, db: Session = Depends(get_db)):
             db.add(Rate(project_id=pid, category=cat, rate=rate,
                         unit=DEFAULT_UNITS.get(cat, "")))
     db.commit()
-    return {"seeded_members": added}
+    return {"seeded_members": added, "skipped": len(pool) - added}

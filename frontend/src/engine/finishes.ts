@@ -36,10 +36,12 @@ export const RAILING_MATERIALS = ["MS", "SS", "glass", "wood"];
 // --------------------------------------------------------------------------- //
 function num(raw: any, key: string, opts: { required?: boolean; gt0?: boolean; ge0?: boolean; def?: number; int?: boolean } = {}): number | null {
   let v = raw?.[key];
-  if (v === undefined || v === null || v === "") {
+  if (v === undefined || v === null) {
     if (opts.required) throw new Error(`Field '${key}' is required`);
     return opts.def ?? null;
   }
+  // "" is not a number here, exactly as in the Python schemas.
+  if (v === "") throw new Error(`Field '${key}' must be a number`);
   v = Number(v);
   if (!isFinite(v)) throw new Error(`Field '${key}' must be a number`);
   if (opts.gt0 && !(v > 0)) throw new Error(`Field '${key}' must be > 0`);

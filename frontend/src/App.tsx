@@ -13,6 +13,7 @@ import {
 } from "./api";
 import { STEEL_SECTIONS } from "./engine/materials";
 import { DEMO_RATES } from "./engine/demo";
+import { PACK_DEMO_RATES } from "./engine/packs";
 import { materialTakeoff } from "./engine/takeoff";
 import {
   BOQ_COLUMNS, groupSerial, itemSerial, itemNameOf, specTextOf,
@@ -118,6 +119,11 @@ export default function App() {
     setHasKey(!!key);
   };
 
+  // A refresh started for one project must never paint another: debounced
+  // rate writes can complete after the user has already switched.
+  const pidRef = useRef<number | null>(null);
+  useEffect(() => { pidRef.current = pid; }, [pid]);
+
   const refresh = useCallback(async (id: number) => {
     try {
       const [b, m, r] = await Promise.all([
@@ -125,6 +131,7 @@ export default function App() {
         api.listMembers(id),
         api.listRates(id),
       ]);
+      if (pidRef.current !== id) return;
       setBoq(b);
       setMembers(m);
       setRates(r);
@@ -235,6 +242,7 @@ export default function App() {
         </button>
         <select
           value={model}
+          aria-label="AI model"
           title="AI model used to read drawings and chat. Opus reads the most thoroughly; Sonnet is faster/cheaper."
           onChange={(e) => { setModel(e.target.value); setModelState(e.target.value); }}
         >
@@ -243,6 +251,7 @@ export default function App() {
         </select>
         <select
           value={pid ?? ""}
+          aria-label="Project"
           onChange={(e) =>
             setPid(e.target.value === "" ? null : Number(e.target.value))
           }
@@ -283,7 +292,7 @@ export default function App() {
           </>
         )}
       </div>
-      {error && <div className="errbar">{error}</div>}
+      {error && <div className="errbar" role="alert">{error}</div>}
 
       {pid === null ? (
         <div className="empty">
@@ -302,9 +311,9 @@ export default function App() {
       ) : (
         <>
           <div className="mobile-tabs">
-            <button className={mobileTab === "left" ? "on" : ""} onClick={() => setMobileTab("left")}>📐 Elements</button>
-            <button className={mobileTab === "center" ? "on" : ""} onClick={() => setMobileTab("center")}>📋 BOQ</button>
-            <button className={mobileTab === "right" ? "on" : ""} onClick={() => setMobileTab("right")}>💬 Chat &amp; Rates</button>
+            <button className={mobileTab === "left" ? "on" : ""} aria-pressed={mobileTab === "left"} onClick={() => setMobileTab("left")}>📐 Elements</button>
+            <button className={mobileTab === "center" ? "on" : ""} aria-pressed={mobileTab === "center"} onClick={() => setMobileTab("center")}>📋 BOQ</button>
+            <button className={mobileTab === "right" ? "on" : ""} aria-pressed={mobileTab === "right"} onClick={() => setMobileTab("right")}>💬 Chat &amp; Rates</button>
           </div>
           <div className={"body tab-" + mobileTab}>
             {/* key={pid}: per-project UI state (staged files, drafts, chat)
@@ -412,9 +421,7 @@ function ProjectDetailsModal({
       <input type={type} value={f[k]} onChange={(e) => set(k, e.target.value)} /></label>
   );
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 520 }}>
-        <h3 style={{ margin: "0 0 4px" }}>Project details</h3>
+    <Dialog title="Project details" width={520} onClose={onClose}>
         <p className="muted small" style={{ marginTop: 0 }}>
           Used in the printable report and Excel header.
         </p>
@@ -441,12 +448,71 @@ function ProjectDetailsModal({
             built_up_area_m2: f.built_up_area_m2 ? Number(f.built_up_area_m2) : undefined,
           })}>Save</button>
         </div>
+    </Dialog>
+  );
+}
+
+/* --------------------------------------------------------------- Modal */
+let dialogSeq = 0;
+
+/**
+ * The one modal container: role=dialog, labelled by its title, focus moved in
+ * on open, Tab/Shift+Tab kept inside, Escape and backdrop close it, and focus
+ * goes back to whatever opened it. Both modals render through this so a
+ * keyboard or screen-reader user gets the same behaviour everywhere.
+ */
+function Dialog({ title, width, onClose, children }: {
+  title: string; width?: number; onClose: () => void; children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const [titleId] = useState(() => `dlg-${++dialogSeq}`);
+
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(root.querySelectorAll<HTMLElement>(
+        'input, select, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
+      )).filter((el) => !el.hasAttribute("disabled"));
+    (focusables()[0] || root).focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); closeRef.current(); return; }
+      if (e.key !== "Tab") return;
+      const f = focusables();
+      if (!f.length) { e.preventDefault(); return; }
+      const i = f.indexOf(document.activeElement as HTMLElement);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
+  }, []);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal"
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        style={width ? { width } : undefined}
+      >
+        <h3 id={titleId} style={{ margin: "0 0 6px" }}>{title}</h3>
+        {children}
       </div>
     </div>
   );
 }
 
-/* --------------------------------------------------------------- Modal */
 function PromptModal({
   title,
   label,
@@ -467,23 +533,21 @@ function PromptModal({
   onClose: () => void;
 }) {
   const [val, setVal] = useState(defaultValue ?? "");
+  const [inputId] = useState(() => `dlg-in-${++dialogSeq}`);
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: "0 0 8px" }}>{title}</h3>
+    <Dialog title={title} onClose={onClose}>
         {message && (
           <p className="muted small" style={{ marginTop: 0 }}>{message}</p>
         )}
-        <label className="field">{label}</label>
+        <label className="field" htmlFor={inputId}>{label}</label>
         <input
+          id={inputId}
           className="w"
-          autoFocus
           type={password ? "password" : "text"}
           value={val}
           onChange={(e) => setVal(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") onSubmit(val);
-            if (e.key === "Escape") onClose();
           }}
         />
         <div
@@ -495,8 +559,7 @@ function PromptModal({
             {submitLabel ?? "OK"}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -666,6 +729,7 @@ function LeftPanel({
             type="file"
             accept="application/pdf"
             multiple
+            aria-label="Add PDF drawings"
             disabled={running}
             onChange={(e) => {
               const files = e.target.files ? Array.from(e.target.files) : [];
@@ -771,7 +835,7 @@ function LeftPanel({
               </div>
             );
           })()}
-          {busy && <div className="muted small" style={{ marginTop: 8 }}>{busy}</div>}
+          {busy && <div className="muted small" role="status" aria-live="polite" style={{ marginTop: 8 }}>{busy}</div>}
           {members.length > 0 && !running && (
             <button className="link see-boq" onClick={onShowBoq}>See the BOQ →</button>
           )}
@@ -866,11 +930,14 @@ function LeftPanel({
                 <div className="spacer" />
                 <span
                   className={`el-dot ${m.is_verified ? "ok" : "warn"}`}
+                  role="img"
+                  aria-label={m.is_verified ? "verified" : "needs review"}
                   title={m.is_verified ? "verified" : "needs review"}
                 />
                 {!m.is_verified && (
                   <button
-                    className="link" title="mark verified"
+                    className="link icon" title="mark verified"
+                    aria-label={`Mark ${m.label || m.member_type} verified`}
                     onClick={async () => {
                       await api.verifyMember(m.id);
                       onChange();
@@ -880,13 +947,15 @@ function LeftPanel({
                   </button>
                 )}
                 <button
-                  className="link" title={isEditing ? "close editor" : "edit"}
+                  className="link icon" title={isEditing ? "close editor" : "edit"}
+                  aria-label={`${isEditing ? "Close editor for" : "Edit"} ${m.label || m.member_type}`}
                   onClick={() => setEditing(isEditing ? null : m.id)}
                 >
                   {isEditing ? "✕" : "✎"}
                 </button>
                 <button
-                  className="link" title="delete"
+                  className="link icon" title="delete"
+                  aria-label={`Delete ${m.label || m.member_type}`}
                   onClick={async () => {
                     if (isEditing) setEditing(null);
                     await api.deleteMember(m.id);
@@ -1095,7 +1164,9 @@ function MemberForm({
     const pu = PACK_UI[type];
     if (pu) {
       for (const k of Object.keys(pu.choices || {})) if (v[k]) m[k] = v[k];
-      for (const t of pu.texts || []) if (v[t.k] !== undefined && v[t.k] !== "") m[t.k] = v[t.k];
+      // As typed, including "": a deliberately blank finish must not be
+      // replaced by the pack's default (the Specification cell then says so).
+      for (const t of pu.texts || []) if (v[t.k] !== undefined) m[t.k] = v[t.k];
     }
     if (type === "column") {
       if (n("mainDia") && n("mainCount")) m.main_bars = [{ dia_mm: n("mainDia"), count: n("mainCount") }];
@@ -1348,7 +1419,7 @@ function ManualAdd({ pid, discipline, onChange }: { pid: number; discipline: Dis
   return (
     <div className="card">
       <div className="row">
-        <label className="field" style={{ margin: 0 }}>Add element manually</label>
+        <div className="field" style={{ margin: 0 }}>Add element manually</div>
         <div className="spacer" />
         <button className="link" onClick={() => setOpenForm(false)}>✕ close</button>
       </div>
@@ -1429,7 +1500,7 @@ function DonutChart({ data, total, onSlice }: {
     <div className="card donut-card">
       <div className="viz-title">Cost split</div>
       <div className="donut-wrap">
-        <svg viewBox="0 0 200 200" className="donut" role="img" aria-label="Cost share by category">
+        <svg viewBox="0 0 200 200" className="donut" role="group" aria-label="Cost share by category">
           <g transform="rotate(-90 100 100)">
             {arcs.map((a) => (
               <circle
@@ -1439,8 +1510,16 @@ function DonutChart({ data, total, onSlice }: {
                 strokeWidth={hov === a.i ? 30 : 24}
                 strokeDasharray={`${Math.max(a.frac * C - GAP, 0.6)} ${C}`}
                 strokeDashoffset={-(a.start * C) - GAP / 2}
+                role="button"
+                tabIndex={0}
+                aria-label={`${a.label}: ${INR0(a.value)} (${(a.frac * 100).toFixed(1)}%) — show line items`}
                 onMouseEnter={() => setHov(a.i)}
                 onMouseLeave={() => setHov(null)}
+                onFocus={() => setHov(a.i)}
+                onBlur={() => setHov(null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSlice(a.cat === "other" ? "" : a.cat); }
+                }}
                 onClick={() => onSlice(a.cat === "other" ? "" : a.cat)}
               >
                 <title>{`${a.label}: ${INR0(a.value)} (${(a.frac * 100).toFixed(1)}%)`}</title>
@@ -1518,11 +1597,24 @@ function CenterPanel({
   // "0", "12." or a cleared box are not re-rendered as a number underneath.
   const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pending = useRef<Record<string, () => void>>({});
+  const pendingCont = useRef<(() => void) | null>(null);
   // ▲/▼ flash on category chips when a rate edit moves that category's amount.
   const [chipDeltas, setChipDeltas] = useState<Record<string, number>>({});
   const prevSubs = useRef<Record<string, number> | null>(null);
   const prevSig = useRef("");
   const deltaTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Unmount (project switch, since the panel is keyed by project): flush any
+  // debounced rate / contingency write for THIS project rather than lose it,
+  // and stop the timers so nothing fires against the next project.
+  useEffect(() => () => {
+    Object.values(timers.current).forEach(clearTimeout);
+    Object.values(pending.current).forEach((fn) => fn());
+    clearTimeout(contTimer.current);
+    pendingCont.current?.();
+    clearTimeout(deltaTimer.current);
+  }, []);
 
   // Seed/refresh the editable rate state whenever the stored rates change.
   useEffect(() => {
@@ -1573,9 +1665,12 @@ function CenterPanel({
     const v = Math.max(0, Number(value) || 0);
     setLocalRates((p) => ({ ...p, [cat]: v }));
     clearTimeout(timers.current[cat]);
-    timers.current[cat] = setTimeout(() => {
+    const run = () => {
+      delete pending.current[cat];
       api.setRate(pid, cat, v).then(onChange).catch(() => {});
-    }, 400);
+    };
+    pending.current[cat] = run;
+    timers.current[cat] = setTimeout(run, 400);
   };
   const editRate = (cat: string, raw: string) => {
     setRateDraft((p) => ({ ...p, [cat]: raw }));
@@ -1589,19 +1684,24 @@ function CenterPanel({
   const editContingency = (raw: string) => {
     setContingency(raw);
     clearTimeout(contTimer.current);
-    contTimer.current = setTimeout(() => onContingency(Math.max(0, Number(raw) || 0)), 400);
+    const run = () => { pendingCont.current = null; onContingency(Math.max(0, Number(raw) || 0)); };
+    pendingCont.current = run;
+    contTimer.current = setTimeout(run, 400);
   };
 
   const loadIndicative = async () => {
+    // Structural categories from demo.ts, the finishing/fit-out ones from the
+    // discipline packs — otherwise an Architecture BOQ stays at ₹0.
+    const indicative: Record<string, number> = { ...DEMO_RATES, ...PACK_DEMO_RATES };
     const next: Record<string, number> = { ...localRates };
     for (const g of boq.groups) {
-      const r = (DEMO_RATES as Record<string, number>)[g.category];
+      const r = indicative[g.category];
       if (r != null) next[g.category] = r;
     }
     setLocalRates(next);
     await Promise.all(
       boq.groups.map((g) => {
-        const r = (DEMO_RATES as Record<string, number>)[g.category];
+        const r = indicative[g.category];
         return r != null ? api.setRate(pid, g.category, r) : Promise.resolve();
       })
     );
@@ -1739,10 +1839,10 @@ function CenterPanel({
           <>
             {/* ---- Overview / Line-items switcher ---- */}
             <div className="ctabs">
-              <button className={centerTab === "overview" ? "on" : ""} onClick={() => setCenterTab("overview")}>
+              <button className={centerTab === "overview" ? "on" : ""} aria-pressed={centerTab === "overview"} onClick={() => setCenterTab("overview")}>
                 📊 Overview
               </button>
-              <button className={centerTab === "items" ? "on" : ""} onClick={() => setCenterTab("items")}>
+              <button className={centerTab === "items" ? "on" : ""} aria-pressed={centerTab === "items"} onClick={() => setCenterTab("items")}>
                 📋 Line items <span className="ctab-count">{allItems.length}</span>
               </button>
             </div>
@@ -1943,7 +2043,7 @@ function CenterPanel({
             <>
             {/* ---- Controls ---- */}
             <div className="boq-controls">
-              <input className="boq-search" placeholder="🔍 Filter line items…"
+              <input className="boq-search" placeholder="🔍 Filter line items…" aria-label="Filter line items"
                 value={search} onChange={(e) => setSearch(e.target.value)} />
               <label className="boq-toggle">
                 <input type="checkbox" checked={reviewOnly}
@@ -1959,6 +2059,7 @@ function CenterPanel({
             {groups.length === 0 ? (
               <div className="empty">No line items match your filter.</div>
             ) : (
+              <div className="table-wrap">
               <table className="boq-table">
                 <thead>
                   <tr>
@@ -1968,7 +2069,10 @@ function CenterPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {groups.map((g, gi) => {
+                  {groups.map((g) => {
+                    // Serials come from the UNFILTERED positions so "2.3" on
+                    // screen is the same "2.3" in the workbook and the report.
+                    const gi = boq.groups.findIndex((x) => x.category === g.category);
                     const isCol = collapsed.has(g.category);
                     const unit = g.items[0]?.unit || "";
                     const st = subtotalOf(g.shown);
@@ -1986,6 +2090,7 @@ function CenterPanel({
                           <td className="num">
                             <span className="rate-edit" onClick={(e) => e.stopPropagation()}>
                               ₹<input type="number" min="0" step="any"
+                                aria-label={`${g.label} rate per ${unit}`}
                                 value={rateDraft[g.category] ?? (localRates[g.category] ? String(localRates[g.category]) : "")}
                                 placeholder="0"
                                 onChange={(e) => editRate(g.category, e.target.value)}
@@ -2000,7 +2105,7 @@ function CenterPanel({
                         {!isCol && g.shown.map((it, i) => {
                           const k = rowKey(g.category, i);
                           return (
-                            <ItemRow key={k} it={it} serial={itemSerial(gi, i)}
+                            <ItemRow key={k} it={it} serial={itemSerial(gi, g.items.indexOf(it))}
                               amount={amountFor(it)} rate={rateFor(it.category)}
                               open={open === k} toggle={() => setOpen(open === k ? null : k)} />
                           );
@@ -2015,6 +2120,7 @@ function CenterPanel({
                   </tr>
                 </tbody>
               </table>
+              </div>
             )}
 
             {(() => {
@@ -2143,12 +2249,22 @@ function RightPanel({
   // Rates save as you type (debounced) and on blur/Enter — not only on blur.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const rateTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const ratePending = useRef<Record<string, () => void>>({});
   const commitRate = (cat: string, raw: string, immediate = false) => {
     const n = Math.max(0, Number(raw) || 0);
     clearTimeout(rateTimers.current[cat]);
-    const run = () => api.setRate(pid, cat, n).then(onChange).catch(() => {});
-    if (immediate) run(); else rateTimers.current[cat] = setTimeout(run, 400);
+    const run = () => {
+      delete ratePending.current[cat];
+      api.setRate(pid, cat, n).then(onChange).catch(() => {});
+    };
+    if (immediate) run();
+    else { ratePending.current[cat] = run; rateTimers.current[cat] = setTimeout(run, 400); }
   };
+  // Project switch unmounts the panel: flush, don't lose, a pending rate.
+  useEffect(() => () => {
+    Object.values(rateTimers.current).forEach(clearTimeout);
+    Object.values(ratePending.current).forEach((fn) => fn());
+  }, []);
   const rateRow = (r: RateRow) => (
     <tr key={r.category} className={`cat-${r.category}`}>
       <td><span className="rate-name">{r.label}</span></td>
@@ -2242,6 +2358,7 @@ function RightPanel({
             <textarea
               rows={2}
               className="w"
+              aria-label="Describe an element to add"
               placeholder='e.g. "add 5 columns 300x600 3m high with 8-16mm bars M25"'
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -2259,7 +2376,7 @@ function RightPanel({
         </div>
 
         <div className="card">
-          <label className="field">Unit rates ({project?.currency || "INR"})</label>
+          <div className="field">Unit rates ({project?.currency || "INR"})</div>
           <div className="muted small" style={{ marginBottom: 6 }}>
             {dInfo.icon} {dInfo.label} categories · saved as you type
           </div>
