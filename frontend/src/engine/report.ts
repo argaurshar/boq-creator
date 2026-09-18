@@ -4,11 +4,12 @@
 import { Boq } from "./boq";
 import { materialTakeoff } from "./takeoff";
 import { groupSerial, itemSerial, itemNameOf, specTextOf } from "./boqtable";
+import { disciplineInfo } from "./disciplines";
 
 interface ProjectLike {
   name?: string; client?: string; location?: string; currency?: string;
   prepared_by?: string; report_date?: string; drawing_ref?: string;
-  built_up_area_m2?: number;
+  built_up_area_m2?: number; contingency_pct?: number;
 }
 
 function esc(s: any): string {
@@ -29,6 +30,11 @@ const CAT_HEX: Record<string, string> = {
   earthwork: "#c98500", concrete: "#3987e5", formwork: "#d95926",
   rebar: "#d55181", steel: "#9085e9", masonry: "#e66767",
   plaster: "#199e70", roofing: "#008300", other: "#64748b",
+  // discipline packs
+  flooring: "#3987e5", skirting: "#1e93a6", tiling: "#d95926", ceiling: "#9085e9",
+  painting: "#d55181", doors_windows: "#c98500", waterproofing: "#7d9420",
+  railing: "#b46fc4", joinery: "#c47a5a", furniture: "#e66767", glazing: "#199e70",
+  sanitary: "#008300", services: "#7d9420",
 };
 const catHex = (c: string) => CAT_HEX[c] || CAT_HEX.other;
 
@@ -68,8 +74,15 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
   const cur = project.currency || "INR";
   const total = boq.grand_total || 0;
   const area = Number(project.built_up_area_m2) || 0;
+  // Contingency is part of the estimate the user saw on screen; the printed
+  // figure must be the same one.
+  const contPct = Math.max(0, Number(project.contingency_pct) || 0);
+  const contAmt = total * contPct / 100;
+  const grand = total + contAmt;
+  const dInfo = disciplineInfo(boq.discipline);
 
   const metaRows: [string, string][] = [
+    ["Discipline", `${dInfo.label} take-off`],
     ["Client", project.client || "—"],
     ["Location", project.location || "—"],
     ["Drawing ref.", project.drawing_ref || "—"],
@@ -256,8 +269,10 @@ function buildReportHtml(project: ProjectLike, boq: Boq): string {
       <table><thead><tr><th>Category</th><th class="r">Amount</th><th class="r">Share</th></tr></thead>
         <tbody>${abstract}</tbody></table>
       <div class="totbox"><table>
-        <tr><td>Grand total</td><td class="r grand">${esc(money(cur, total))}</td></tr>
-        ${area ? `<tr><td>Cost / m² built-up</td><td class="r">${esc(money(cur, total / area))}</td></tr>` : ""}
+        ${contPct > 0 ? `<tr><td>Sub-total</td><td class="r">${esc(money(cur, total))}</td></tr>
+        <tr><td>Contingency ${contPct}%</td><td class="r">${esc(money(cur, contAmt))}</td></tr>` : ""}
+        <tr><td>Grand total${contPct > 0 ? " incl. contingency" : ""}</td><td class="r grand">${esc(money(cur, grand))}</td></tr>
+        ${area ? `<tr><td>Cost / m² built-up</td><td class="r">${esc(money(cur, grand / area))}</td></tr>` : ""}
       </table></div>
     </div>
   </div>

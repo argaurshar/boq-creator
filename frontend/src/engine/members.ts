@@ -185,6 +185,8 @@ export function validateMember(raw: any): Member {
     case "pcc":
       return {
         ...base,
+        // Lean concrete is a bed, not a structural mix: M10 unless stated.
+        concrete_grade: raw.concrete_grade != null ? String(raw.concrete_grade) : "M10",
         length_mm: num(raw, "length_mm", { required: true })!,
         breadth_mm: num(raw, "breadth_mm", { required: true })!,
         thickness_mm: num(raw, "thickness_mm", { required: true })!,

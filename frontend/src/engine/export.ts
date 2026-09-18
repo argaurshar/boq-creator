@@ -7,6 +7,10 @@ import { Boq } from "./boq";
 import { pyRound } from "./units";
 import { materialTakeoff } from "./takeoff";
 import { groupSerial, itemSerial, itemNameOf, specTextOf } from "./boqtable";
+import { disciplineInfo } from "./disciplines";
+
+/** Contingency % persisted on the project (0 when unset). */
+const contingencyPct = (project: any) => Math.max(0, Number(project?.contingency_pct) || 0);
 
 // The seven-column BOQ contract — identical headings, order and content to the
 // on-screen table and the printed report. No Unit column: the unit rides on the
@@ -35,6 +39,7 @@ function boqSheet(project: any, boq: Boq): XLSX.WorkSheet {
   const formulas: { row: number; col: number; f: string; v: number }[] = [];
 
   aoa.push([`Bill of Quantities — ${project.name || "Project"}`]);
+  aoa.push([`Discipline: ${disciplineInfo(boq.discipline).label} take-off`]);
   aoa.push([`Client: ${project.client || ""}    Location: ${project.location || ""}`]);
   const meta2 = [
     project.drawing_ref ? `Drawing ref: ${project.drawing_ref}` : "",
@@ -77,6 +82,16 @@ function boqSheet(project: any, boq: Boq): XLSX.WorkSheet {
   const gtRow = aoa.length;
   if (subtotalRows.length) {
     formulas.push({ row: gtRow, col: 6, f: subtotalRows.map((r) => `F${r}`).join("+"), v: boq.grand_total });
+  }
+  // Contingency rides on top as live formulas, so the workbook total matches
+  // the screen and stays editable.
+  const contPct = contingencyPct(project);
+  if (contPct > 0) {
+    aoa.push(["", "", `Contingency ${contPct}%`, "", "", null, ""]);
+    const cRow = aoa.length;
+    formulas.push({ row: cRow, col: 6, f: `F${gtRow}*${contPct}/100`, v: boq.grand_total * contPct / 100 });
+    aoa.push(["", "", "GRAND TOTAL incl. contingency", "", "", null, ""]);
+    formulas.push({ row: aoa.length, col: 6, f: `F${gtRow}+F${cRow}`, v: boq.grand_total * (1 + contPct / 100) });
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -168,15 +183,22 @@ function trussSheet(boq: Boq): XLSX.WorkSheet | null {
 function costAbstractSheet(project: any, boq: Boq): XLSX.WorkSheet {
   const total = boq.grand_total || 0;
   const area = Number(project.built_up_area_m2) || 0;
-  const aoa: any[][] = [[`Cost Abstract — ${project.name || "Project"}`], []];
+  const contPct = contingencyPct(project);
+  const grand = total * (1 + contPct / 100);
+  const aoa: any[][] = [[`Cost Abstract — ${project.name || "Project"}`],
+    [`Discipline: ${disciplineInfo(boq.discipline).label} take-off`], []];
   aoa.push(["Category", "Amount", "Share %"]);
   for (const g of boq.groups) {
     const pct = total > 0 ? pyRound((g.subtotal / total) * 100, 1) : 0;
     aoa.push([g.label, r3(g.subtotal), pct]);
   }
   aoa.push([]);
-  aoa.push(["GRAND TOTAL", r3(total), ""]);
-  if (area) aoa.push([`Cost per m² (built-up ${area} m²)`, r3(total / area), ""]);
+  if (contPct > 0) {
+    aoa.push(["Sub-total", r3(total), ""]);
+    aoa.push([`Contingency ${contPct}%`, r3(total * contPct / 100), ""]);
+  }
+  aoa.push([contPct > 0 ? "GRAND TOTAL incl. contingency" : "GRAND TOTAL", r3(grand), ""]);
+  if (area) aoa.push([`Cost per m² (built-up ${area} m²)`, r3(grand / area), ""]);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 10 }];
   return ws;
@@ -207,6 +229,8 @@ function assumptionsSheet(project: any, boq: Boq): XLSX.WorkSheet {
     ["Plaster opening deduction", "openings > 0.5 m2 (IS 1200)"],
     ["Reinforcement in concrete", "no deduction"],
     ["Currency", project.currency || "INR"],
+    ["Discipline", `${disciplineInfo(boq.discipline).label} take-off — elements of other disciplines are listed on the 'Outside Discipline' sheet, not measured`],
+    ["Contingency", `${contingencyPct(project)}%`],
     ["Note", "AI-assisted draft — quantities must be engineer-verified before use."],
   ];
   for (const kv of rows) aoa.push(kv);
@@ -221,6 +245,20 @@ function assumptionsSheet(project: any, boq: Boq): XLSX.WorkSheet {
   return ws;
 }
 
+/** Out-of-scope register — read but not measured because another discipline
+ *  owns them. A hand-over workbook must state what it does not cover. */
+function outOfScopeSheet(boq: Boq): XLSX.WorkSheet | null {
+  const oos = boq.out_of_scope || [];
+  if (!oos.length) return null;
+  const aoa: any[][] = [[`Outside This Discipline — ${disciplineInfo(boq.discipline).label} take-off`],
+    [`${oos.length} element(s) read from the drawings but not measured here`], [],
+    ["Label", "Element type", "Reason"]];
+  for (const o of oos) aoa.push([o.label, o.member_type, o.reason]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 18 }, { wch: 20 }, { wch: 80 }];
+  return ws;
+}
+
 export function downloadBoqXlsx(project: any, boq: Boq): void {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, costAbstractSheet(project, boq), "Cost Abstract");
@@ -231,6 +269,8 @@ export function downloadBoqXlsx(project: any, boq: Boq): void {
   if (trusses) XLSX.utils.book_append_sheet(wb, trusses, "Steel Truss Details");
   const materials = materialSheet(boq);
   if (materials) XLSX.utils.book_append_sheet(wb, materials, "Material Summary");
+  const oos = outOfScopeSheet(boq);
+  if (oos) XLSX.utils.book_append_sheet(wb, oos, "Outside Discipline");
   XLSX.utils.book_append_sheet(wb, assumptionsSheet(project, boq), "Assumptions");
   const fname = `BOQ_${String(project.name || "Project").replace(/ /g, "_")}.xlsx`;
   XLSX.writeFile(wb, fname);

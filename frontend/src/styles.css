@@ -354,6 +354,13 @@ a.btnlink:hover { filter: brightness(1.1); }
 .comp-seg:hover .seg-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
 .comp-seg:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .comp-seg:focus-visible .seg-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* first/last segments: pin the tip inside the bar instead of off-screen */
+.comp-seg:first-child .seg-tip { left: 0; transform: translateX(0) translateY(3px); }
+.comp-seg:first-child:hover .seg-tip,
+.comp-seg:first-child:focus-visible .seg-tip { transform: translateX(0) translateY(0); }
+.comp-seg:last-child .seg-tip { left: auto; right: 0; transform: translateX(0) translateY(3px); }
+.comp-seg:last-child:hover .seg-tip,
+.comp-seg:last-child:focus-visible .seg-tip { transform: translateX(0) translateY(0); }
 
 /* ===================== Material KPI tiles ===================== */
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
@@ -437,20 +444,25 @@ a.btnlink:hover { filter: brightness(1.1); }
 
 /* Donut ("pie") — ≤6 slices, colours from the validated .cat-* palette */
 .cat-other { --c: #64748b; }
-/* discipline-pack categories — cycle the validated hues; chips are labelled */
+/* discipline-pack categories — every hue is unique WITHIN a discipline
+   (Architecture: masonry/plaster/roofing + the finishes set; Interior: the
+   interior set + the finishes it shares) so a donut never repeats a colour.
+   Teal, olive, orchid and terracotta are additions to the validated set —
+   re-run the palette checker when it is available (report.ts CAT_HEX mirrors
+   these; keep in sync). */
 .cat-flooring      { --c: #3987e5; }
-.cat-skirting      { --c: #199e70; }
+.cat-skirting      { --c: #1e93a6; }
 .cat-tiling        { --c: #d95926; }
 .cat-ceiling       { --c: #9085e9; }
 .cat-painting      { --c: #d55181; }
 .cat-doors_windows { --c: #c98500; }
-.cat-waterproofing { --c: #008300; }
-.cat-railing       { --c: #e66767; }
-.cat-joinery       { --c: #3987e5; }
-.cat-furniture     { --c: #c98500; }
+.cat-waterproofing { --c: #7d9420; }
+.cat-railing       { --c: #b46fc4; }
+.cat-joinery       { --c: #c47a5a; }
+.cat-furniture     { --c: #e66767; }
 .cat-glazing       { --c: #199e70; }
-.cat-sanitary      { --c: #9085e9; }
-.cat-services      { --c: #d55181; }
+.cat-sanitary      { --c: #008300; }
+.cat-services      { --c: #7d9420; }
 .donut-card { margin-bottom: 0; }
 .donut-wrap { position: relative; max-width: 250px; margin: 0 auto; }
 .donut { display: block; width: 100%; animation: donutIn .7s cubic-bezier(.22,.61,.36,1) both; }
@@ -495,8 +507,8 @@ a.btnlink:hover { filter: brightness(1.1); }
   border-left: 3px solid var(--c, var(--line)); }
 .el-card .el-ico { font-size: 17px; line-height: 1; flex: none; }
 .el-card .el-main { min-width: 0; }
-.el-card .el-title { display: flex; align-items: baseline; gap: 7px; }
-.el-card .el-title strong { font-size: 13px; overflow: hidden;
+.el-card .el-title { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.el-card .el-title strong { font-size: 13px; overflow: hidden; flex: none; max-width: 100%;
   text-overflow: ellipsis; white-space: nowrap; }
 .el-card .el-src { font-family: var(--font-mono); font-size: 9px;
   color: var(--muted); border: 1px solid var(--line); border-radius: 3px;
@@ -762,3 +774,15 @@ body.paper .bs-oos { background: #eef1f6; color: #40506b; }
 
 body.paper .keyhint, body.paper .oos-note { background: #f6edcf; color: #7a5b0b; border-color: #e2cf93; }
 body.paper .step-n.done { color: #fff; }
+/* the status hues were tuned for the dark surface; on paper they need more ink */
+body.paper { --good: #1a8f63; --warn: #a3700a; }
+
+/* discipline kicker above the estimate + next to the panel title */
+.bs-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 2px; }
+.h2-kicker { font-weight: 500; font-size: 12px; color: var(--muted); }
+/* rates panel: the other disciplines' categories fold away */
+.rates-more { margin-top: 8px; font-size: 12px; }
+.rates-more > summary { cursor: pointer; color: var(--muted); }
+.rates-more > summary:hover { color: var(--text); }
+.rates-more table { margin-top: 6px; }

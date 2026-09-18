@@ -17,6 +17,8 @@ export interface DisciplineInfo {
   types: string[];
   /** Item groups the pack does NOT cover yet — surfaced in the UI verbatim. */
   notYet: string[];
+  /** BOQ categories those types produce — the rate rows worth showing first. */
+  categories: string[];
 }
 
 // A member type may legitimately belong to more than one discipline: foundation
@@ -33,6 +35,7 @@ export const DISCIPLINES: DisciplineInfo[] = [
       "steel_member", "truss", "anchor_bolt", "earthwork_pit",
     ],
     notYet: ["Staircases as a first-class type", "Retaining walls", "Precast elements"],
+    categories: ["earthwork", "concrete", "formwork", "rebar", "steel"],
   },
   {
     key: "civil",
@@ -44,6 +47,7 @@ export const DISCIPLINES: DisciplineInfo[] = [
       "Roads and pavements", "Drainage and manholes", "Boundary wall",
       "Anti-termite treatment", "Plinth protection", "Shoring and dewatering",
     ],
+    categories: ["earthwork", "concrete"],
   },
   {
     key: "architecture",
@@ -56,6 +60,10 @@ export const DISCIPLINES: DisciplineInfo[] = [
       "waterproofing", "railing",
     ],
     notYet: ["External cladding systems", "Sloped-roof waterproofing", "Staircase finishes"],
+    categories: [
+      "masonry", "plaster", "roofing", "flooring", "skirting", "tiling", "ceiling",
+      "painting", "doors_windows", "waterproofing", "railing",
+    ],
   },
   {
     key: "interior",
@@ -67,6 +75,10 @@ export const DISCIPLINES: DisciplineInfo[] = [
       "flooring", "wall_tiling", "false_ceiling", "painting", "door_window",
     ],
     notYet: ["Soft furnishings and curtains", "HVAC interface", "Handover cleaning"],
+    categories: [
+      "joinery", "furniture", "glazing", "sanitary", "services", "flooring",
+      "skirting", "tiling", "ceiling", "painting", "doors_windows",
+    ],
   },
 ];
 

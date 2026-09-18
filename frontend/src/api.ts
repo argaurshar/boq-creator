@@ -4,7 +4,9 @@
 // still exists for local/Codespaces use, but this build does not need it.
 
 import { buildBoq, StoredMember, Boq, BoqItem, BoqGroup } from "./engine/boq";
-import { Discipline, DEFAULT_DISCIPLINE, disciplineInfo } from "./engine/disciplines";
+import {
+  Discipline, DEFAULT_DISCIPLINE, disciplineInfo, inScope, outOfScopeReason,
+} from "./engine/disciplines";
 
 import { validateMember } from "./engine/members";
 import { computeMember } from "./engine/compute";
@@ -39,6 +41,9 @@ export interface Project {
   built_up_area_m2?: number;
   /** Active take-off discipline — exactly one per run (the discipline gate). */
   discipline?: Discipline;
+  /** Contingency added on top of the grand total — persisted so the printed
+   *  report and the workbook show the same figure as the screen. */
+  contingency_pct?: number;
 }
 
 export interface RateRow {
@@ -242,9 +247,11 @@ export const api = {
   setRate: (pid: number, category: string, rate: number) => {
     getProject(pid);
     if (!KNOWN_CATS.has(category)) throw new Error(`Unknown category '${category}'`);
-    (store.rates[pid] ||= {})[category] = rate;
+    // A negative or non-numeric rate can never be right; clamp rather than store it.
+    const r = Math.max(0, Number(rate) || 0);
+    (store.rates[pid] ||= {})[category] = r;
     save();
-    return ok({ category, rate });
+    return ok({ category, rate: r });
   },
 
   nlEdit: async (pid: number, text: string) => {
@@ -262,7 +269,7 @@ export const api = {
       result = await claudeParseNl(text, context, key, getModel());
     } else {
       provider = "mock";
-      result = mockParseNl(text);
+      result = mockParseNl(text, discipline);
     }
     let preview: any = null;
     if (result.op === "add" && result.member) {
@@ -274,6 +281,12 @@ export const api = {
             category: q.category, unit: q.unit, rounded: roundQty(q.value, q.unit),
           })),
         };
+        // Say so before Apply if the element would land outside the active
+        // discipline — it will be registered, not measured.
+        if (!inScope(m.member_type, discipline)) {
+          preview.out_of_scope = outOfScopeReason(m.member_type, discipline);
+          result.message += ` Note: ${preview.out_of_scope}`;
+        }
       } catch (e: any) {
         result.op = "noop";
         result.message = "Parsed but invalid: " + (e.message || e);
@@ -367,8 +380,11 @@ export const api = {
     if (!pool.length) {
       throw new Error(`No demo elements exist for ${disciplineInfo(d).label} yet.`);
     }
+    // Idempotent: a second click must not double every element.
+    const have = new Set((store.members[pid] || []).map((m) => `${m.member_type}|${m.label}`));
     let added = 0;
     for (const raw of pool) {
+      if (have.has(`${raw.member_type}|${raw.label}`)) continue;
       addMemberInternal(pid, { ...raw, source: "manual" });
       added += 1;
     }
@@ -377,7 +393,7 @@ export const api = {
       if (r[cat] === undefined) r[cat] = rate;
     }
     save();
-    return ok({ seeded_members: added });
+    return ok({ seeded_members: added, skipped: pool.length - added });
   },
 
   exportXlsx: async (pid: number) => {

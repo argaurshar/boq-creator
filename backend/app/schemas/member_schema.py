@@ -78,6 +78,8 @@ class RccWall(_MemberBase):
 
 class Pcc(_MemberBase):
     member_type: Literal["pcc"] = "pcc"
+    # Lean concrete is a bed, not a structural mix: M10 unless stated.
+    concrete_grade: str = "M10"
     length_mm: float
     breadth_mm: float
     thickness_mm: float

@@ -26,6 +26,16 @@ import { PACK_TYPES, PACK_UI } from "./engine/packs";
 // Right-aligned columns of the seven-column BOQ contract.
 const NUM_COLS = new Set<string>(["Quantity", "Rate", "Amount"]);
 
+// Auto-created projects get a unique name ("New Project", "New Project 2", …)
+// so the project dropdown never shows two indistinguishable entries.
+function nextProjectName(existing: { name: string }[]): string {
+  const taken = new Set(existing.map((p) => p.name.trim().toLowerCase()));
+  if (!taken.has("new project")) return "New Project";
+  let n = 2;
+  while (taken.has(`new project ${n}`)) n += 1;
+  return `New Project ${n}`;
+}
+
 const INR = (n: number) =>
   "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
@@ -141,7 +151,7 @@ export default function App() {
           if (m.length === 0) { targetId = p.id; break; }
         }
         if (targetId === null) {
-          const np = await api.createProject({ name: "New Project" });
+          const np = await api.createProject({ name: nextProjectName(ps) });
           ps = [np, ...ps];
           targetId = np.id;
         }
@@ -170,6 +180,18 @@ export default function App() {
     }
   };
 
+  // Contingency lives on the project so the report and workbook print the
+  // same estimate the screen shows.
+  const saveContingency = async (pct: number) => {
+    if (pid === null) return;
+    try {
+      const p = await api.updateProject(pid, { contingency_pct: pct });
+      setProjects((ps) => ps.map((x) => (x.id === p.id ? p : x)));
+    } catch (e: any) {
+      setError("Could not save contingency: " + e.message);
+    }
+  };
+
   const createProject = async (rawName: string) => {
     setShowNewProject(false);
     const name = rawName.trim();
@@ -195,7 +217,7 @@ export default function App() {
           title={
             hasKey
               ? "An Anthropic API key is set in this browser. Click to change or remove it."
-              : "No AI key set — drawing extraction & chat use the key-free demo mode. Click to add your Anthropic key."
+              : "No AI key set — add your Anthropic key to read drawings. Chat and demo data work without one."
           }
         >
           {hasKey ? "🔑 AI key: on" : "🔑 Set AI key"}
@@ -285,7 +307,10 @@ export default function App() {
             <button className={mobileTab === "right" ? "on" : ""} onClick={() => setMobileTab("right")}>💬 Chat &amp; Rates</button>
           </div>
           <div className={"body tab-" + mobileTab}>
+            {/* key={pid}: per-project UI state (staged files, drafts, chat)
+                must not leak into the next project. */}
             <LeftPanel
+              key={`l${pid}`}
               pid={pid}
               members={members}
               discipline={project?.discipline || DEFAULT_DISCIPLINE}
@@ -297,18 +322,23 @@ export default function App() {
               onChange={() => refresh(pid)}
             />
             <CenterPanel
+              key={`c${pid}`}
               pid={pid}
               boq={boq}
               rates={rates}
               currency={project?.currency || "INR"}
+              contingencyPct={project?.contingency_pct || 0}
+              onContingency={saveContingency}
               onDiscipline={setDiscipline}
               onStart={() => setMobileTab("left")}
               onChange={() => refresh(pid)}
             />
             <RightPanel
+              key={`r${pid}`}
               pid={pid}
               project={project}
               rates={rates}
+              boqCats={(boq?.groups || []).map((g) => g.category)}
               onChange={() => refresh(pid)}
             />
           </div>
@@ -319,7 +349,7 @@ export default function App() {
         <PromptModal
           title="New project"
           label="Project name"
-          defaultValue="New Project"
+          defaultValue={nextProjectName(projects)}
           submitLabel="Create"
           onSubmit={createProject}
           onClose={() => setShowNewProject(false)}
@@ -485,11 +515,12 @@ function DisciplineGate({
         <span className="step-t">Choose discipline</span>
         <span className="step-s">one at a time</span>
       </div>
-      <div className="dgate-grid">
+      <div className="dgate-grid" role="group" aria-label="Discipline">
         {DISCIPLINES.map((d) => (
           <button
             key={d.key}
             className={`dgate-opt ${d.key === discipline ? "on" : ""}`}
+            aria-pressed={d.key === discipline}
             onClick={() => onDiscipline(d.key)}
             title={d.blurb}
           >
@@ -548,6 +579,12 @@ function LeftPanel({
   const runExtraction = async () => {
     const list = staged;
     if (!list.length) return;
+    if (!hasKey) {
+      // Never wipe the current BOQ for a run that cannot start.
+      setBusy("Set your Anthropic key (🔑 top right) to read drawings.");
+      onOpenKey();
+      return;
+    }
     try {
       // A new upload always starts a fresh BOQ: wipe any earlier elements and
       // AI suggestions before reading the newly uploaded drawings.
@@ -695,7 +732,9 @@ function LeftPanel({
                 setBusy("Loading demo data…");
                 try {
                   const res = await api.seedDemo(pid, discipline);
-                  setBusy(`Loaded demo: ${res.seeded_members} elements.`);
+                  setBusy(res.seeded_members
+                    ? `Loaded demo: ${res.seeded_members} elements.`
+                    : "Demo already loaded — nothing new to add.");
                   onChange();
                 } catch (e: any) {
                   setBusy("Error: " + e.message);
@@ -1422,7 +1461,7 @@ function DonutChart({ data, total, onSlice }: {
         <div className="donut-center">
           <div className="dc-name">{h ? h.label : "Total"}</div>
           <div className="dc-val">{INR0(h ? h.value : total)}</div>
-          <div className="dc-sub">{h ? `${(h.frac * 100).toFixed(1)}%` : `${data.length} slices`}</div>
+          <div className="dc-sub">{h ? `${(h.frac * 100).toFixed(1)}%` : `${data.length} categories`}</div>
         </div>
       </div>
     </div>
@@ -1455,12 +1494,14 @@ function TopItems({ rows, onJump }: {
 }
 
 function CenterPanel({
-  pid, boq, rates, currency, onDiscipline, onStart, onChange,
+  pid, boq, rates, currency, contingencyPct, onContingency, onDiscipline, onStart, onChange,
 }: {
   pid: number;
   boq: Boq | null;
   rates: RateRow[];
   currency: string;
+  contingencyPct: number;
+  onContingency: (pct: number) => void;
   onDiscipline: (d: Discipline) => void;
   onStart: () => void;
   onChange: () => void;
@@ -1469,13 +1510,18 @@ function CenterPanel({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [contingency, setContingency] = useState("0");
+  const [contingency, setContingency] = useState(() => String(contingencyPct || 0));
+  const contTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [centerTab, setCenterTab] = useState<"overview" | "items">("overview");
   const [localRates, setLocalRates] = useState<Record<string, number>>({});
+  // What the user is typing in a rate box, verbatim, while it has focus — so
+  // "0", "12." or a cleared box are not re-rendered as a number underneath.
+  const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // ▲/▼ flash on category chips when a rate edit moves that category's amount.
   const [chipDeltas, setChipDeltas] = useState<Record<string, number>>({});
   const prevSubs = useRef<Record<string, number> | null>(null);
+  const prevSig = useRef("");
   const deltaTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Seed/refresh the editable rate state whenever the stored rates change.
@@ -1490,11 +1536,18 @@ function CenterPanel({
     // non-zero baseline, so first load / indicative-load don't flash every
     // chip) shows a ▲/▼ delta on the chip for a few seconds.
     if (!boq) return;
+    // A discipline switch or a change in the element set is not a rate edit:
+    // rebase the comparison instead of flashing every chip.
+    const sig = boq.discipline + "|" +
+      boq.groups.map((g) => g.items.map((it) => it.member_id).join(",")).join(";");
+    const rebase = sig !== prevSig.current;
+    prevSig.current = sig;
     const cur: Record<string, number> = {};
     for (const g of boq.groups)
       cur[g.category] = g.items.reduce(
         (s, it) => s + it.quantity * (localRates[it.category] ?? 0), 0);
-    if (prevSubs.current) {
+    if (rebase) setChipDeltas({});
+    if (prevSubs.current && !rebase) {
       const d: Record<string, number> = {};
       for (const k of Object.keys(cur)) {
         const before = prevSubs.current[k] ?? 0;
@@ -1511,16 +1564,32 @@ function CenterPanel({
 
   if (!boq) return <div className="col center"><div className="empty">Loading…</div></div>;
 
+  const dInfo = disciplineInfo(boq.discipline);
   const rateFor = (cat: string) => localRates[cat] ?? 0;
   const amountFor = (it: BoqItem) => it.quantity * rateFor(it.category);
 
   // Persist a rate change (debounced) but update the UI instantly for live totals.
   const setRate = (cat: string, value: number) => {
-    setLocalRates((p) => ({ ...p, [cat]: value }));
+    const v = Math.max(0, Number(value) || 0);
+    setLocalRates((p) => ({ ...p, [cat]: v }));
     clearTimeout(timers.current[cat]);
     timers.current[cat] = setTimeout(() => {
-      api.setRate(pid, cat, value || 0).then(onChange).catch(() => {});
+      api.setRate(pid, cat, v).then(onChange).catch(() => {});
     }, 400);
+  };
+  const editRate = (cat: string, raw: string) => {
+    setRateDraft((p) => ({ ...p, [cat]: raw }));
+    const n = Number(raw);
+    if (raw.trim() === "") setRate(cat, 0);
+    else if (Number.isFinite(n)) setRate(cat, n);
+  };
+  const endRateEdit = (cat: string) =>
+    setRateDraft((p) => { const n = { ...p }; delete n[cat]; return n; });
+
+  const editContingency = (raw: string) => {
+    setContingency(raw);
+    clearTimeout(contTimer.current);
+    contTimer.current = setTimeout(() => onContingency(Math.max(0, Number(raw) || 0)), 400);
   };
 
   const loadIndicative = async () => {
@@ -1588,7 +1657,7 @@ function CenterPanel({
 
   return (
     <div className="col center">
-      <h2>Bill of Quantities</h2>
+      <h2>Bill of Quantities <span className="h2-kicker">· {dInfo.label}</span></h2>
       <div className="scroll">
         {boq.groups.length === 0 && (boq.out_of_scope || []).length > 0 ? (
           // Elements exist but none belong to the active discipline. Say so
@@ -1684,6 +1753,7 @@ function CenterPanel({
             <div className="boq-summary">
               <div className="bs-head">
                 <div>
+                  <div className="bs-kicker">{dInfo.icon} {dInfo.label} take-off</div>
                   <div className="bs-label">Tentative estimate</div>
                   <div className="bs-total"><AnimatedAmount value={tentative} format={INR0} /></div>
                   <div className="bs-sub">
@@ -1695,8 +1765,9 @@ function CenterPanel({
                 <div className="bs-actions">
                   <label className="bs-cont">
                     <span>Contingency %</span>
-                    <input type="number" value={contingency} min="0"
-                      onChange={(e) => setContingency(e.target.value)} />
+                    <input type="number" value={contingency} min="0" step="any"
+                      onChange={(e) => editContingency(e.target.value)}
+                      onBlur={() => setContingency(String(Math.max(0, Number(contingency) || 0)))} />
                   </label>
                   {cont > 0 && <div className="bs-base">base {INR0(grand)}</div>}
                   <button className="accent" onClick={loadIndicative}>
@@ -1914,9 +1985,12 @@ function CenterPanel({
                           <td></td>
                           <td className="num">
                             <span className="rate-edit" onClick={(e) => e.stopPropagation()}>
-                              ₹<input type="number" value={localRates[g.category] ?? ""}
+                              ₹<input type="number" min="0" step="any"
+                                value={rateDraft[g.category] ?? (localRates[g.category] ? String(localRates[g.category]) : "")}
                                 placeholder="0"
-                                onChange={(e) => setRate(g.category, Number(e.target.value))} />
+                                onChange={(e) => editRate(g.category, e.target.value)}
+                                onBlur={() => endRateEdit(g.category)}
+                                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                               <span className="per">/{unit}</span>
                             </span>
                           </td>
@@ -2047,16 +2121,58 @@ function RightPanel({
   pid,
   project,
   rates,
+  boqCats,
   onChange,
 }: {
   pid: number;
   project: Project | null;
   rates: RateRow[];
+  /** Categories present in the current BOQ — always shown in the rates list. */
+  boqCats: string[];
   onChange: () => void;
 }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const dInfo = disciplineInfo(project?.discipline);
+  // Rate rows the active discipline can actually use come first; the other
+  // categories stay one click away instead of padding the list.
+  const relevant = new Set<string>([...dInfo.categories, ...boqCats]);
+  const primary = rates.filter((r) => relevant.has(r.category));
+  const secondary = rates.filter((r) => !relevant.has(r.category));
+  // Rates save as you type (debounced) and on blur/Enter — not only on blur.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const rateTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const commitRate = (cat: string, raw: string, immediate = false) => {
+    const n = Math.max(0, Number(raw) || 0);
+    clearTimeout(rateTimers.current[cat]);
+    const run = () => api.setRate(pid, cat, n).then(onChange).catch(() => {});
+    if (immediate) run(); else rateTimers.current[cat] = setTimeout(run, 400);
+  };
+  const rateRow = (r: RateRow) => (
+    <tr key={r.category} className={`cat-${r.category}`}>
+      <td><span className="rate-name">{r.label}</span></td>
+      <td className="muted small">{r.unit}</td>
+      <td className="num">
+        <input
+          style={{ width: 90 }}
+          type="number" min="0" step="any" placeholder="0"
+          aria-label={`${r.label} rate per ${r.unit}`}
+          value={drafts[r.category] ?? (r.rate ? String(r.rate) : "")}
+          onChange={(e) => {
+            const v = e.target.value;
+            setDrafts((d) => ({ ...d, [r.category]: v }));
+            commitRate(r.category, v);
+          }}
+          onBlur={(e) => {
+            commitRate(r.category, e.target.value, true);
+            setDrafts((d) => { const n = { ...d }; delete n[r.category]; return n; });
+          }}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+        />
+      </td>
+    </tr>
+  );
 
   const send = async () => {
     if (!text.trim()) return;
@@ -2076,9 +2192,14 @@ function RightPanel({
     setBusy(false);
   };
 
-  const apply = async (member: any) => {
+  const apply = async (member: any, outOfScope?: string) => {
     await api.nlApply(pid, member);
-    setMsgs((m) => [...m, { role: "bot", text: "✓ Added to BOQ." }]);
+    setMsgs((m) => [...m, {
+      role: "bot",
+      text: outOfScope
+        ? `✓ Added — but it sits outside ${dInfo.label}, so it is registered, not measured. ${outOfScope}`
+        : "✓ Added to BOQ.",
+    }]);
     onChange();
   };
 
@@ -2104,11 +2225,14 @@ function RightPanel({
                       </li>
                     ))}
                   </ul>
+                  {m.preview.out_of_scope && (
+                    <div className="oos-note">⚠ {m.preview.out_of_scope}</div>
+                  )}
                   <button
                     className="primary"
-                    onClick={() => apply(m.preview.member)}
+                    onClick={() => apply(m.preview.member, m.preview.out_of_scope)}
                   >
-                    Apply
+                    {m.preview.out_of_scope ? "Apply anyway" : "Apply"}
                   </button>
                 </div>
               )}
@@ -2136,28 +2260,18 @@ function RightPanel({
 
         <div className="card">
           <label className="field">Unit rates ({project?.currency || "INR"})</label>
+          <div className="muted small" style={{ marginBottom: 6 }}>
+            {dInfo.icon} {dInfo.label} categories · saved as you type
+          </div>
           <table>
-            <tbody>
-              {rates.map((r) => (
-                <tr key={r.category} className={`cat-${r.category}`}>
-                  <td><span className="rate-name">{r.label}</span></td>
-                  <td className="muted small">{r.unit}</td>
-                  <td className="num">
-                    <input
-                      key={`${r.category}-${r.rate}`}
-                      style={{ width: 90 }}
-                      type="number"
-                      defaultValue={r.rate}
-                      onBlur={async (e) => {
-                        await api.setRate(pid, r.category, Number(e.target.value));
-                        onChange();
-                      }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            <tbody>{primary.map(rateRow)}</tbody>
           </table>
+          {secondary.length > 0 && (
+            <details className="rates-more">
+              <summary>Other categories ({secondary.length})</summary>
+              <table><tbody>{secondary.map(rateRow)}</tbody></table>
+            </details>
+          )}
         </div>
       </div>
     </div>
