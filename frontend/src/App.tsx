@@ -100,6 +100,8 @@ export default function App() {
   const [showKey, setShowKey] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [mobileTab, setMobileTab] = useState<"left" | "center" | "right">("center");
+  // Phone header: the secondary actions fold behind a "⋯" button.
+  const [moreOpen, setMoreOpen] = useState(false);
   // "ink" = dark blueprint (default) · "paper" = light drafting-paper theme.
   const [theme, setTheme] = useState<string>(
     () => localStorage.getItem("boq.theme") || "ink"
@@ -218,6 +220,41 @@ export default function App() {
         <h1>🏗️ BOQ Creator</h1>
         <span className="tag">AI-assisted, engineer-verified · IS-code</span>
         <div className="spacer" />
+        {/* On a phone the project picker stays on the first row and every
+            other action folds behind "⋯" so the header is two rows at most. */}
+        <select
+          value={pid ?? ""}
+          aria-label="Project"
+          className="tb-project"
+          onChange={(e) =>
+            setPid(e.target.value === "" ? null : Number(e.target.value))
+          }
+        >
+          {projects.length === 0 && <option value="">No projects</option>}
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <button
+          className="tb-more"
+          aria-expanded={moreOpen}
+          aria-controls="tb-tools"
+          aria-label={moreOpen ? "Hide menu" : "Show menu"}
+          onClick={() => setMoreOpen((o) => !o)}
+        >
+          {moreOpen ? "✕" : "⋯"}
+        </button>
+        <div
+          id="tb-tools"
+          className={`tb-tools ${moreOpen ? "open" : ""}`}
+          onClick={(e) => {
+            // An action taken from the folded menu closes it; changing a
+            // select does not.
+            if ((e.target as HTMLElement).closest("button")) setMoreOpen(false);
+          }}
+        >
         <button
           className={hasKey ? "keybtn set" : "keybtn"}
           onClick={() => setShowKey(true)}
@@ -249,20 +286,6 @@ export default function App() {
           <option value="claude-sonnet-4-6">Sonnet (fast)</option>
           <option value="claude-opus-4-8">Opus (most thorough)</option>
         </select>
-        <select
-          value={pid ?? ""}
-          aria-label="Project"
-          onChange={(e) =>
-            setPid(e.target.value === "" ? null : Number(e.target.value))
-          }
-        >
-          {projects.length === 0 && <option value="">No projects</option>}
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
         <button onClick={() => setShowNewProject(true)}>+ Project</button>
         {pid !== null && (
           <>
@@ -291,6 +314,7 @@ export default function App() {
             </button>
           </>
         )}
+        </div>
       </div>
       {error && <div className="errbar" role="alert">{error}</div>}
 
