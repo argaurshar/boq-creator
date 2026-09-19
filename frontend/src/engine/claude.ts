@@ -25,16 +25,42 @@ function stripFences(text: string): string {
 // the key belongs to. The raw API JSON (e.g.
 // {"type":"authentication_error","message":"invalid x-api-key"}) is confusing
 // to end users, so common statuses get plain-language guidance.
+// A gateway can answer with HTML (an nginx 413 page, a proxy error). Pasting
+// markup into the chat helps nobody: prefer the API's own message, else the
+// text with tags stripped, else nothing but the status.
+function errorDetail(body: string): string {
+  const t = (body || "").trim();
+  if (!t) return "";
+  try {
+    const j = JSON.parse(t);
+    const m = j?.error?.message || j?.message || j?.msg;
+    if (m) return String(m).slice(0, 200);
+  } catch { /* not JSON */ }
+  if (/^\s*</.test(t)) {
+    const text = t.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return text.slice(0, 120);
+  }
+  return t.slice(0, 200);
+}
+
 function friendlyApiError(p: ProviderInfo, status: number, body: string): string {
+  const detail = errorDetail(body);
+  const tail = detail ? ` (${detail})` : "";
   if (status === 401 || status === 403)
-    return `Your ${p.label} key looks invalid or unauthorized. Open 🔑 (top right) and paste a valid key (it ${p.keyHint}). If the key is from the other provider, the 🔑 dialog detects that for you.`;
+    return `Your ${p.short} key looks invalid or unauthorized. Open 🔑 AI key and paste a valid one (${p.short} keys start with ${p.keyHint}). If the key is from the other provider, the 🔑 dialog spots that for you.`;
   if (status === 404)
-    return `${p.label} does not recognise this endpoint or model (404). Check the model in the top bar, or switch provider in the 🔑 dialog. ${body.slice(0, 160)}`;
+    return `${p.short} does not recognise this endpoint or model (404). Try the other model in the 🔑 AI model picker.${tail}`;
+  if (status === 413)
+    return `The drawing page is too large for ${p.short} (413). Try a PDF with fewer or simpler pages, or split it up.`;
   if (status === 429)
-    return `${p.label} rate limit reached — wait a few seconds and try again.`;
+    return `${p.short} rate limit reached — wait a few seconds and try again.`;
   if (status === 402)
-    return `Your ${p.label} account is out of credits — top up at ${p.keyUrl}, then retry.`;
-  return `${p.label} API ${status}: ${body.slice(0, 200)}`;
+    return `Your ${p.short} account is out of credits — top up at ${p.billingUrl}, then retry.`;
+  if (status === 400)
+    return `${p.short} rejected the request (400).${tail || " The model or request shape may not be supported there."}`;
+  if (status >= 500)
+    return `${p.short} is having trouble right now (${status}) — retry in a moment.${tail}`;
+  return `${p.short} API ${status}${tail}`;
 }
 
 // fetch() rejects (rather than returning a status) when the request never
@@ -45,10 +71,11 @@ function friendlyNetworkError(p: ProviderInfo, e: any): Error {
   const msg = String(e?.message || e);
   if (/failed to fetch|load failed|networkerror|fetch failed/i.test(msg)) {
     return new Error(
-      `Could not reach ${p.label} from the browser (${msg}). Check your internet ` +
-      `connection. If you are on a page served over the web, ${p.label} must also ` +
-      `allow browser requests from this site — if it does not, run the app locally ` +
-      `or use a key from the other provider.`
+      `Could not reach ${p.short} from the browser (${msg}). Either you are offline, ` +
+      `or ${p.short} does not allow browser requests from this page — only ${p.short} ` +
+      `can change that (CORS), so retrying from another network will not help. ` +
+      `An Anthropic key does allow it; chat, demo data and manual entry keep working ` +
+      `without any key.`
     );
   }
   return e instanceof Error ? e : new Error(msg);
@@ -88,18 +115,21 @@ async function jsonCall(
       const body = await res.text();
       throw new Error(friendlyApiError(p, res.status, body));
     }
-    const data = await res.json();
-    const text = (data.content || [])
-      .filter((b: any) => b.type === "text")
-      .map((b: any) => b.text)
-      .join("");
     try {
+      // A 200 carrying something other than a Messages reply (a gateway
+      // interstitial, a truncated body) must go through the retry, not throw a
+      // raw SyntaxError at the caller.
+      const data = await res.json();
+      const text = (data.content || [])
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("");
       return JSON.parse(stripFences(text));
     } catch (e) {
       lastErr = e;
     }
   }
-  throw new Error(`Claude did not return valid JSON: ${lastErr}`);
+  throw new Error(`${p.short} did not return valid JSON: ${lastErr}`);
 }
 
 export async function claudeParseNl(

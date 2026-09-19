@@ -17,7 +17,7 @@ from typing import Any
 
 from ..config import settings
 from .provider import AIProvider
-from .providers import model_for, normalize_key, resolve_provider
+from .providers import normalize_key, resolve_provider
 
 _PROMPTS = Path(__file__).parent / "prompts"
 _MODEL = settings.CLAUDE_MODEL  # default "claude-sonnet-4-6"
@@ -33,10 +33,16 @@ class ClaudeProvider(AIProvider):
     def __init__(self, api_key: str | None = None) -> None:
         import anthropic  # imported lazily so the app runs without the package
         # A per-request key (from the frontend) takes precedence over the env.
+        # The operator's pinned host and base URL apply to the operator's own
+        # key only: a user's key follows its own prefix, so bringing your own
+        # key never hands it to a host you did not choose.
+        byo = bool((api_key or "").strip())
         key = normalize_key(api_key or settings.ANTHROPIC_API_KEY)
-        self.provider = resolve_provider(key, settings.AI_API_PROVIDER)
-        self.model = model_for(self.provider, _MODEL)
-        base_url = settings.ANTHROPIC_BASE_URL or self.provider["base_url"]
+        self.provider = resolve_provider(key, "auto" if byo else settings.AI_API_PROVIDER)
+        # The operator chose CLAUDE_MODEL deliberately; pass it through.
+        self.model = _MODEL
+        base_url = (self.provider["base_url"] if byo
+                    else (settings.ANTHROPIC_BASE_URL or self.provider["base_url"]))
         if self.provider["auth"] == "bearer":
             self._client = anthropic.Anthropic(
                 api_key=None, auth_token=key, base_url=base_url)

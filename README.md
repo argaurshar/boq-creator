@@ -79,17 +79,23 @@ configure:
 | `sk-ant-…` | Anthropic (direct) | `https://api.anthropic.com/v1/messages` | `x-api-key` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
 | `sk-kie-…` | [kie.ai](https://kie.ai) — same Claude models on kie.ai credits | `https://api.kie.ai/claude/v1/messages` | `Authorization: Bearer` | [kie.ai/api-key](https://kie.ai/api-key) |
 
-A `Bearer ` prefix, surrounding quotes or stray spaces are stripped, so pasting
-straight from either provider's docs works. The 🔑 dialog shows which provider
-it detected before you save, and has an override for keys with an unfamiliar
-prefix. Server-side, the same detection applies to `ANTHROPIC_API_KEY`; pin a
-host with `AI_API_PROVIDER=anthropic|kie` or point at another gateway with
-`ANTHROPIC_BASE_URL`.
+Paste the key however your provider gives it to you — a bare key, a quoted
+one, `Bearer sk-kie-…`, or the whole `export ANTHROPIC_API_KEY="Bearer sk-kie-…"`
+line from kie.ai's setup guide. The 🔑 dialog shows which provider it detected
+before you save.
 
-Browser calls go straight from your browser to that provider. Anthropic
-publishes the CORS headers a browser needs; if a gateway does not, the app says
-so plainly and you can run the local backend instead (which calls the provider
-server-side).
+A recognised key always goes to the provider that issued it: the three provider
+chips only decide where a key with an **unfamiliar** prefix is sent, so the app
+can never hand your Anthropic key to another host (or the reverse). Server-side
+the same detection applies to `ANTHROPIC_API_KEY`; `AI_API_PROVIDER=anthropic|kie`
+and `ANTHROPIC_BASE_URL` pin where the *server's own* key goes and are ignored
+for a key a user brings from the browser.
+
+Browser calls go straight from your browser to that provider, so the provider
+has to allow it (CORS). Anthropic does. If a gateway does not, no client-side
+setting can change that — the app says so plainly instead of showing "Failed to
+fetch", and everything that needs no key (chat parsing, demo data, manual entry,
+rates, exports) keeps working.
 
 ### Frontend
 

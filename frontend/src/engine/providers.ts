@@ -26,10 +26,14 @@ export interface ProviderInfo {
   url: string;
   /** Key prefixes that identify this provider. */
   keyPrefixes: string[];
-  /** Shown under the key box, e.g. "starts with sk-ant-". */
+  /** The key's prefix, bare: call sites write the sentence around it. */
   keyHint: string;
+  /** "a" or "an" — so generated prose reads like English. */
+  article: string;
   /** Where to get a key. */
   keyUrl: string;
+  /** Where to add credits — not the same page as the key. */
+  billingUrl: string;
   /** How the key is sent. */
   auth: "x-api-key" | "bearer";
   /** One line describing what this provider is. */
@@ -57,8 +61,10 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     baseUrl: ANTHROPIC_BASE,
     url: `${ANTHROPIC_BASE}/v1/messages`,
     keyPrefixes: ["sk-ant-"],
-    keyHint: "starts with sk-ant-",
+    keyHint: "sk-ant-",
+    article: "an",
     keyUrl: "https://console.anthropic.com/settings/keys",
+    billingUrl: "https://console.anthropic.com/settings/billing",
     auth: "x-api-key",
     blurb: "Your own Anthropic account — billed by Anthropic.",
     models: MODELS,
@@ -72,8 +78,10 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     baseUrl: KIE_BASE,
     url: `${KIE_BASE}/v1/messages`,
     keyPrefixes: ["sk-kie-"],
-    keyHint: "starts with sk-kie-",
+    keyHint: "sk-kie-",
+    article: "a",
     keyUrl: "https://kie.ai/api-key",
+    billingUrl: "https://kie.ai/billing",
     // kie.ai accepts the key as a bearer token (their ANTHROPIC_AUTH_TOKEN
     // route); the x-api-key route wants the literal text "Bearer <key>", so
     // bearer is the unambiguous one to send.
@@ -86,38 +94,70 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
 export const DEFAULT_PROVIDER: ProviderId = "anthropic";
 export const PROVIDER_LIST: ProviderInfo[] = [PROVIDERS.anthropic, PROVIDERS.kie];
 
+// A key token wherever it appears in pasted text: sk-ant-…, sk-kie-…, and any
+// future sk-<vendor>- key. Long enough that it cannot match prose.
+const KEY_TOKEN = /(sk-[a-z][a-z0-9]*-[A-Za-z0-9_-]{8,})/;
+
 /**
- * Tidy a pasted key. People paste what the docs show them, which includes
- * quotes, stray whitespace, and — from kie.ai's Claude Code instructions —
- * a literal "Bearer " prefix. All of those mean the same key.
+ * Tidy a pasted key.
+ *
+ * People paste what the docs hand them. kie.ai's Claude Code guide hands them
+ * a whole shell line — `export ANTHROPIC_API_KEY="Bearer sk-kie-…"` — and
+ * Anthropic's console hands them a bare key. Both must end up as the same
+ * token, because a key that is not recognised is routed to the wrong host.
  */
 export function normalizeKey(raw: string): string {
   let k = String(raw ?? "").trim();
-  if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
+  if (k.length >= 2 &&
+      ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'")))) {
     k = k.slice(1, -1).trim();
   }
-  if (/^bearer\s+/i.test(k)) k = k.replace(/^bearer\s+/i, "").trim();
+  k = k.replace(/^bearer\s+/i, "").trim();
+  // Anything else around the key (an export line, a JSON field, a stray
+  // quote) is dropped as long as a key token is in there somewhere.
+  if (!detectPrefix(k)) {
+    const m = KEY_TOKEN.exec(k);
+    if (m) return m[1];
+  }
   return k;
 }
 
-/** Which provider issued this key? null when the prefix says nothing. */
-export function detectProvider(key: string): ProviderId | null {
-  const k = normalizeKey(key).toLowerCase();
-  if (!k) return null;
+/** Prefix lookup on an already-normalised string (no recursion). */
+function detectPrefix(k: string): ProviderId | null {
+  const low = k.toLowerCase();
   for (const p of PROVIDER_LIST) {
-    if (p.keyPrefixes.some((prefix) => k.startsWith(prefix))) return p.id;
+    if (p.keyPrefixes.some((prefix) => low.startsWith(prefix))) return p.id;
   }
   return null;
 }
 
+/** Which provider issued this key? null when the prefix says nothing. */
+export function detectProvider(key: string): ProviderId | null {
+  const k = normalizeKey(key);
+  return k ? detectPrefix(k) : null;
+}
+
 /**
- * The provider to call with this key. An explicit choice wins; otherwise the
- * key's own prefix decides; a key that looks like neither falls back to
- * Anthropic (the historical behaviour, so old stored keys keep working).
+ * The provider to call with this key.
+ *
+ * A key goes to the provider that issued it — always. Sending an sk-ant- key
+ * to another host would hand that host a credential it has no business
+ * seeing, so a stored preference can never override a *recognised* key; it
+ * only decides where a key with an unfamiliar prefix goes. A key that looks
+ * like neither, with no preference, falls back to Anthropic (the historical
+ * behaviour, so older stored keys keep working).
  */
 export function resolveProvider(key: string, pref: ProviderPref = "auto"): ProviderInfo {
+  const detected = detectProvider(key);
+  if (detected) return PROVIDERS[detected];
   if (pref !== "auto" && PROVIDERS[pref]) return PROVIDERS[pref];
-  return PROVIDERS[detectProvider(key) || DEFAULT_PROVIDER];
+  return PROVIDERS[DEFAULT_PROVIDER];
+}
+
+/** True when a chosen provider is being ignored because the key names its own. */
+export function overrideIgnored(key: string, pref: ProviderPref): boolean {
+  const detected = detectProvider(key);
+  return pref !== "auto" && detected !== null && detected !== pref;
 }
 
 export function providerInfo(id: string | null | undefined): ProviderInfo {

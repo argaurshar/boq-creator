@@ -42,3 +42,8 @@ jobs:
         run: npm ci
       - name: Type-check & build
         run: npm run build
+      # The static build is the product: prove the shipped TypeScript routes a
+      # key to the right host with the right header, against the same corpus
+      # the backend asserts (shared/provider-cases.json).
+      - name: Provider contract (shared corpus)
+        run: npm run check:providers

@@ -27,7 +27,8 @@ import {
 import type { OutOfScopeEntry } from "./engine/boq";
 import { PACK_TYPES, PACK_UI } from "./engine/packs";
 import {
-  PROVIDER_LIST, ProviderPref, detectProvider, normalizeKey, resolveProvider,
+  PROVIDER_LIST, ProviderPref, detectProvider, normalizeKey, overrideIgnored,
+  providerInfo, resolveProvider,
 } from "./engine/providers";
 
 // Right-aligned columns of the seven-column BOQ contract.
@@ -125,8 +126,8 @@ export default function App() {
   const saveKey = (raw: string, pref: ProviderPref) => {
     setShowKey(false);
     const key = normalizeKey(raw);
-    setApiKey(key);
-    setProviderPref(pref);
+    setApiKey(key);                       // also clears the pin when key is ""
+    if (key) setProviderPref(pref);
     setHasKey(!!key);
     setProviderState(getProvider());
     // A model the new provider does not serve would 404 on the first call, so
@@ -502,7 +503,11 @@ function Dialog({ title, width, onClose, children }: {
       Array.from(root.querySelectorAll<HTMLElement>(
         'input, select, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
       )).filter((el) => !el.hasAttribute("disabled"));
-    (focusables()[0] || root).focus();
+    // A dialog whose point is a text field says so with data-autofocus, and
+    // starts with the whole value selected so a paste replaces it.
+    const preferred = root.querySelector<HTMLElement>("[data-autofocus]");
+    (preferred || focusables()[0] || root).focus();
+    if (preferred instanceof HTMLInputElement) preferred.select();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); closeRef.current(); return; }
       if (e.key !== "Tab") return;
@@ -515,7 +520,13 @@ function Dialog({ title, width, onClose, children }: {
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      opener?.focus?.();
+      // Restore focus on the next frame: focusing the opener synchronously
+      // puts it under the very keystroke that closed the dialog, so an Enter
+      // that saved would immediately re-open it.
+      const raf = requestAnimationFrame(() => {
+        if (opener?.isConnected) opener.focus?.();
+      });
+      setTimeout(() => cancelAnimationFrame(raf), 1000);
     };
   }, []);
 
@@ -609,13 +620,17 @@ function ApiKeyModal({
   const key = normalizeKey(raw);
   const detected = detectProvider(key);
   const active = resolveProvider(key, pref);
-  const mismatch = pref !== "auto" && detected !== null && detected !== pref;
+  // A recognised key always goes to its own provider — a chosen one is only
+  // used for keys whose prefix says nothing.
+  const ignored = overrideIgnored(key, pref);
   const submit = () => onSubmit(raw, pref);
 
   const options: Array<{ id: ProviderPref; label: string; hint: string }> = [
     { id: "auto", label: "✨ Auto-detect", hint: "Use whichever provider the key belongs to (recommended)." },
     ...PROVIDER_LIST.map((p) => ({
-      id: p.id as ProviderPref, label: p.short, hint: `${p.blurb} Keys ${p.keyHint}.`,
+      id: p.id as ProviderPref,
+      label: p.short,
+      hint: `${p.blurb} Keys start with ${p.keyHint}. Only used for a key whose prefix is not recognised.`,
     })),
   ];
 
@@ -651,34 +666,36 @@ function ApiKeyModal({
         type="password"
         autoComplete="off"
         spellCheck={false}
-        placeholder="sk-ant-… or sk-kie-…"
+        data-autofocus
+        placeholder="sk-ant-… or sk-kie-… (a whole export line works too)"
         value={raw}
         onChange={(e) => setRaw(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
       />
 
       <div className={`prov-status ${key && !detected ? "warn" : ""}`} role="status" aria-live="polite">
         {!key ? (
-          <>Anthropic keys {PROVIDER_LIST[0].keyHint}; kie.ai keys {PROVIDER_LIST[1].keyHint}.</>
+          <>Anthropic keys start with {PROVIDER_LIST[0].keyHint}; kie.ai keys start with{" "}
+            {PROVIDER_LIST[1].keyHint}. You can paste a whole line from either
+            provider's docs.</>
         ) : detected ? (
-          <>✓ Detected a <b>{resolveProvider(key, "auto").label}</b> key
-            {pref !== "auto" && <> · sending to <b>{active.label}</b> (your choice)</>}
-          </>
+          <>✓ Detected {active.article} <b>{active.short}</b> key — calls go there.</>
         ) : (
-          <>⚠ Unrecognised key prefix — it will be sent to <b>{active.label}</b>.
+          <>⚠ Unrecognised key prefix — it will be sent to <b>{active.short}</b>.
             Pick the provider above if that is wrong.</>
         )}
       </div>
-      {mismatch && (
+      {ignored && (
         <div className="prov-status warn">
-          ⚠ This looks like a {resolveProvider(key, "auto").short} key but you
-          chose {active.short}. Switch to ✨ Auto-detect unless you mean it.
+          ⚠ You chose {providerInfo(pref).short}, but this key is a {active.short}
+          {" "}key, so it will go to {active.short}. A key is never sent to a
+          provider it does not belong to.
         </div>
       )}
 
       <div className="row" style={{ marginTop: 10, alignItems: "center", gap: 8 }}>
         <a className="link" href={active.keyUrl} target="_blank" rel="noreferrer noopener">
-          Get a {active.short} key ↗
+          Get {active.article} {active.short} key ↗
         </a>
         <div className="spacer" />
         {getApiKey() && (
@@ -774,7 +791,7 @@ function LeftPanel({
     if (!list.length) return;
     if (!hasKey) {
       // Never wipe the current BOQ for a run that cannot start.
-      setBusy("Set your AI key (🔑 top right) to read drawings — Anthropic or kie.ai.");
+      setBusy("Set your AI key (🔑 in the top bar, under ⋯ on a phone) to read drawings — Anthropic or kie.ai.");
       onOpenKey();
       return;
     }
@@ -973,7 +990,7 @@ function LeftPanel({
             <summary>How it works</summary>
             <div className="muted small">
               Claude reads every sheet in your browser with your <strong>🔑 AI
-              key</strong> (top right), focused on the discipline you chose in
+              key</strong> (top bar, under ⋯ on a phone), focused on the discipline you chose in
               step 1; each run starts a fresh BOQ, and every extracted element
               is marked <em>review</em> so you stay in control. Elements that
               belong to another discipline are set aside, never dropped.

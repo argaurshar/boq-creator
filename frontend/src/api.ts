@@ -82,8 +82,14 @@ export function getApiKey(): string {
 export function setApiKey(key: string): void {
   try {
     const k = normalizeKey(key);
-    if (k) localStorage.setItem(KEY_STORAGE, k);
-    else localStorage.removeItem(KEY_STORAGE);
+    if (k) {
+      localStorage.setItem(KEY_STORAGE, k);
+    } else {
+      // No key, no provider choice: a pin left behind would silently apply to
+      // whatever key is pasted next.
+      localStorage.removeItem(KEY_STORAGE);
+      localStorage.removeItem(PROVIDER_STORAGE);
+    }
   } catch { /* ignore */ }
 }
 
@@ -106,15 +112,30 @@ export function getProvider(): ProviderInfo {
   return resolveProvider(getApiKey(), getProviderPref());
 }
 
+/**
+ * Key, provider and model read together, once.
+ *
+ * A multi-page extraction runs for minutes. Reading the key at the start and
+ * the provider per page would send the old key to a new host the moment the
+ * user edits the key mid-run — a credential handed to a provider it does not
+ * belong to. They are only ever read as a set.
+ */
+export function credentials(): { key: string; provider: ProviderInfo; model: string } {
+  const key = getApiKey();
+  const provider = resolveProvider(key, getProviderPref());
+  return { key, provider, model: modelFor(provider, storedModel()) };
+}
+
 // Which Claude model to use for AI calls (extraction + chat). Default Sonnet;
 // users can switch to Opus for maximum extraction completeness on hard drawings.
 // The stored value is filtered through the active provider, so a model the
 // provider does not serve can never be sent.
 const MODEL_STORAGE = "boq.claudeModel";
+function storedModel(): string {
+  try { return localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; }
+}
 export function getModel(): string {
-  try {
-    return modelFor(getProvider(), localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL);
-  } catch { return DEFAULT_MODEL; }
+  try { return modelFor(getProvider(), storedModel()); } catch { return DEFAULT_MODEL; }
 }
 export function setModel(model: string): void {
   try { localStorage.setItem(MODEL_STORAGE, model); } catch { /* ignore */ }
@@ -298,8 +319,9 @@ export const api = {
     let provider: string;
     if (key) {
       provider = "claude";
+      const cred = credentials();
       result = await claudeParseNl(
-        text, context, key, getModel(), packPromptShapes(), getProvider());
+        text, context, cred.key, cred.model, packPromptShapes(), cred.provider);
     } else {
       provider = "mock";
       result = mockParseNl(text, discipline);
@@ -339,9 +361,10 @@ export const api = {
     review = true
   ): Promise<{ saved: number; rejected: any[]; unresolved: any[]; pages: number; reviews: any[] }> => {
     const p = getProject(pid);
-    const key = getApiKey();
+    // Read once, for the whole run: see credentials().
+    const { key, provider: aiProvider, model: aiModel } = credentials();
     if (!key) {
-      throw new Error("Set your AI key (🔑 top right) to read PDFs — an Anthropic (sk-ant-…) or kie.ai (sk-kie-…) key both work.");
+      throw new Error("Set your AI key (🔑 in the top bar, under ⋯ on a phone) to read PDFs — an Anthropic (sk-ant-…) or a kie.ai (sk-kie-…) key both work.");
     }
     // Lazy-load pdf.js (large) only when a PDF is actually uploaded.
     const { renderPdf } = await import("./engine/pdf");
@@ -359,8 +382,8 @@ export const api = {
       onProgress?.(`Reading ${file.name} — page ${pg.page_no}/${pages.length} with AI (${disciplineInfo(discipline).label})…`);
       const result = await claudeExtract({
         page_no: pg.page_no, page_text: pg.text, page_image_b64: pg.image_b64,
-        scale: "unknown", context: ctx, apiKey: key, model: getModel(), onProgress,
-        provider: getProvider(),
+        scale: "unknown", context: ctx, apiKey: key, model: aiModel, onProgress,
+        provider: aiProvider,
         discipline, extraShapes: packPromptShapes(),
       });
       // Save members, remembering id↔label↔type so review suggestions can target them.
@@ -381,8 +404,8 @@ export const api = {
         onProgress?.(`Re-checking ${file.name} — page ${pg.page_no}/${pages.length}…`);
         const sugg = await claudeReview({
           page_no: pg.page_no, page_image_b64: pg.image_b64,
-          members: result.members || [], context: ctx, apiKey: key, model: getModel(),
-          extraShapes: packPromptShapes(), provider: getProvider(),
+          members: result.members || [], context: ctx, apiKey: key, model: aiModel,
+          extraShapes: packPromptShapes(), provider: aiProvider,
         });
         for (const r of sugg) {
           const lbl = String(r.target_label || "").trim().toLowerCase();
