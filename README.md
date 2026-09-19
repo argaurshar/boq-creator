@@ -91,6 +91,39 @@ the same detection applies to `ANTHROPIC_API_KEY`; `AI_API_PROVIDER=anthropic|ki
 and `ANTHROPIC_BASE_URL` pin where the *server's own* key goes and are ignored
 for a key a user brings from the browser.
 
+#### When a gateway says "500 Internal error"
+
+A gateway can take the key, allow the browser, and still refuse the one request
+the app needs to make — because it does not serve the model id we send, caps
+the reply length below what a page read asks for, or does not accept images.
+All three come back as the same opaque 500.
+
+**🔑 AI key → Test connection** takes them apart. It asks the host for its model
+catalogue (`GET /v1/models`), then sends a few one-word requests: one on the
+model you picked, a descending reply-length ladder (16k → 8k → 4k → 1k), and one
+carrying a tiny image. It reports which step failed, and fixes what it can:
+
+- a model the host does serve is offered as a chip — click it to use it;
+- the reply-length ceiling it finds is remembered per provider, and every later
+  call asks for no more than that;
+- if the host will not take images, it says so — that host cannot read drawings,
+  though chat and manual entry still work.
+
+The probes cost a few tokens in total (each asks for one word, so a high
+`max_tokens` is only a ceiling, never a bill).
+
+Whatever model you choose is what gets sent. The two models in the picker are a
+convenience, not a catalogue: a gateway may serve ids we have never heard of,
+and silently substituting one of ours would hide "not served here" behind an
+answer from a different model. The choice is remembered **per provider**, so a
+gateway-only id never follows you to the other host, and a measured reply
+ceiling is forgotten as soon as the key changes — another key can be another
+plan.
+
+Heavy drawings are handled before they are sent: a page that encodes larger
+than the provider will accept is re-rendered smaller (down to a legibility
+floor) rather than failing the run.
+
 Browser calls go straight from your browser to that provider, so the provider
 has to allow it (CORS). Anthropic does. If a gateway does not, no client-side
 setting can change that — the app says so plainly instead of showing "Failed to

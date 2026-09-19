@@ -82,6 +82,11 @@ export function getApiKey(): string {
 export function setApiKey(key: string): void {
   try {
     const k = normalizeKey(key);
+    // Reply-length ceilings belong to the account that was measured, not to
+    // the host: a different key can be a different plan. Keeping one would
+    // silently truncate every reply on the new key, with nothing on screen to
+    // say why, so a key change starts from "no ceiling known".
+    if (k !== getApiKey()) localStorage.removeItem(CAP_STORAGE);
     if (k) {
       localStorage.setItem(KEY_STORAGE, k);
     } else {
@@ -120,25 +125,76 @@ export function getProvider(): ProviderInfo {
  * user edits the key mid-run — a credential handed to a provider it does not
  * belong to. They are only ever read as a set.
  */
-export function credentials(): { key: string; provider: ProviderInfo; model: string } {
+export function credentials(): {
+  key: string; provider: ProviderInfo; model: string; maxTokensCap: number;
+} {
   const key = getApiKey();
   const provider = resolveProvider(key, getProviderPref());
-  return { key, provider, model: modelFor(provider, storedModel()) };
+  return {
+    key,
+    provider,
+    model: modelFor(provider, storedModel(provider)),
+    maxTokensCap: getMaxTokensCap(provider),
+  };
+}
+
+// What a host was found to accept, per provider: a gateway can cap the reply
+// length below what a page read asks for. Discovered by the 🔑 self-test and
+// kept so every later call asks for a length this host will actually serve.
+const CAP_STORAGE = "boq.aiMaxTokens";
+function caps(): Record<string, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CAP_STORAGE) || "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch { return {}; }
+}
+export function getMaxTokensCap(provider?: ProviderInfo): number {
+  const id = (provider || getProvider()).id;
+  const n = Number(caps()[id]);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+/** Record (cap > 0) or clear (cap <= 0) the ceiling found for one provider. */
+export function setMaxTokensCap(provider: ProviderInfo, cap: number): void {
+  const all = caps();
+  if (cap > 0) all[provider.id] = cap;
+  else delete all[provider.id];
+  try { localStorage.setItem(CAP_STORAGE, JSON.stringify(all)); } catch { /* ignore */ }
 }
 
 // Which Claude model to use for AI calls (extraction + chat). Default Sonnet;
-// users can switch to Opus for maximum extraction completeness on hard drawings.
-// The stored value is filtered through the active provider, so a model the
-// provider does not serve can never be sent.
+// users can switch to Opus for maximum extraction completeness on hard
+// drawings, or to any id a gateway turns out to serve — what is chosen is what
+// is sent, because our per-provider list is a convenience, not a catalogue.
+// Kept per provider: an id discovered on a gateway ("claude-3-7-sonnet", say)
+// is meaningless on the other host, and since a chosen model is now sent
+// verbatim, carrying it across would 404 the first call after a key change.
+// Each provider remembers its own choice instead.
 const MODEL_STORAGE = "boq.claudeModel";
-function storedModel(): string {
-  try { return localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; }
+function modelMap(): Record<string, string> {
+  let raw = "";
+  try { raw = localStorage.getItem(MODEL_STORAGE) || ""; } catch { return {}; }
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw);
+    if (v && typeof v === "object") return v as Record<string, string>;
+    if (typeof v === "string") return { "*": v };
+  } catch { /* an older build stored the bare id, not JSON */ }
+  return { "*": raw };
+}
+function storedModel(provider?: ProviderInfo): string {
+  const map = modelMap();
+  const id = (provider || getProvider()).id;
+  return map[id] || map["*"] || DEFAULT_MODEL;
 }
 export function getModel(): string {
-  try { return modelFor(getProvider(), storedModel()); } catch { return DEFAULT_MODEL; }
+  try { const p = getProvider(); return modelFor(p, storedModel(p)); } catch { return DEFAULT_MODEL; }
 }
-export function setModel(model: string): void {
-  try { localStorage.setItem(MODEL_STORAGE, model); } catch { /* ignore */ }
+export function setModel(model: string, provider?: ProviderInfo): void {
+  try {
+    const map = modelMap();
+    map[(provider || getProvider()).id] = model;
+    localStorage.setItem(MODEL_STORAGE, JSON.stringify(map));
+  } catch { /* ignore */ }
 }
 
 // --------------------------------------------------------------------------- //
@@ -321,7 +377,8 @@ export const api = {
       provider = "claude";
       const cred = credentials();
       result = await claudeParseNl(
-        text, context, cred.key, cred.model, packPromptShapes(), cred.provider);
+        text, context, cred.key, cred.model, packPromptShapes(), cred.provider,
+        cred.maxTokensCap);
     } else {
       provider = "mock";
       result = mockParseNl(text, discipline);
@@ -362,7 +419,9 @@ export const api = {
   ): Promise<{ saved: number; rejected: any[]; unresolved: any[]; pages: number; reviews: any[] }> => {
     const p = getProject(pid);
     // Read once, for the whole run: see credentials().
-    const { key, provider: aiProvider, model: aiModel } = credentials();
+    const {
+      key, provider: aiProvider, model: aiModel, maxTokensCap: aiCap,
+    } = credentials();
     if (!key) {
       throw new Error("Set your AI key (🔑 in the top bar, under ⋯ on a phone) to read PDFs — an Anthropic (sk-ant-…) or a kie.ai (sk-kie-…) key both work.");
     }
@@ -383,7 +442,7 @@ export const api = {
       const result = await claudeExtract({
         page_no: pg.page_no, page_text: pg.text, page_image_b64: pg.image_b64,
         scale: "unknown", context: ctx, apiKey: key, model: aiModel, onProgress,
-        provider: aiProvider,
+        provider: aiProvider, maxTokensCap: aiCap,
         discipline, extraShapes: packPromptShapes(),
       });
       // Save members, remembering id↔label↔type so review suggestions can target them.
@@ -405,7 +464,7 @@ export const api = {
         const sugg = await claudeReview({
           page_no: pg.page_no, page_image_b64: pg.image_b64,
           members: result.members || [], context: ctx, apiKey: key, model: aiModel,
-          extraShapes: packPromptShapes(), provider: aiProvider,
+          extraShapes: packPromptShapes(), provider: aiProvider, maxTokensCap: aiCap,
         });
         for (const r of sugg) {
           const lbl = String(r.target_label || "").trim().toLowerCase();

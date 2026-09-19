@@ -8,12 +8,14 @@ import {
   setProviderPref,
   getModel,
   setModel,
+  setMaxTokensCap,
   Boq,
   BoqItem,
   Project,
   RateRow,
   Member,
 } from "./api";
+import { ProbeResult, ProbeStep, probeProvider } from "./engine/claude";
 import { STEEL_SECTIONS } from "./engine/materials";
 import { DEMO_RATES } from "./engine/demo";
 import { PACK_DEMO_RATES } from "./engine/packs";
@@ -27,8 +29,8 @@ import {
 import type { OutOfScopeEntry } from "./engine/boq";
 import { PACK_TYPES, PACK_UI } from "./engine/packs";
 import {
-  PROVIDER_LIST, ProviderPref, detectProvider, normalizeKey, overrideIgnored,
-  providerInfo, resolveProvider,
+  PROVIDER_LIST, ProviderInfo, ProviderPref, detectProvider, normalizeKey,
+  overrideIgnored, providerInfo, resolveProvider,
 } from "./engine/providers";
 
 // Right-aligned columns of the seven-column BOQ contract.
@@ -130,10 +132,19 @@ export default function App() {
     if (key) setProviderPref(pref);
     setHasKey(!!key);
     setProviderState(getProvider());
-    // A model the new provider does not serve would 404 on the first call, so
-    // getModel() filters it — mirror that into the picker.
     const m = getModel();
     if (m !== model) setModelState(m);
+  };
+
+  /** Adopt a model the 🔑 self-test found on the host it was run against.
+   *
+   *  That host is not necessarily the saved one: the test runs on the key
+   *  being typed, which may belong to the other provider. Record the choice
+   *  under the provider it was proven on, and only move the picker when that
+   *  is the provider the app is currently calling. */
+  const chooseModel = (id: string, on: ProviderInfo) => {
+    setModel(id, on);
+    if (on.id === getProvider().id) setModelState(id);
   };
 
   // A refresh started for one project must never paint another: debounced
@@ -301,6 +312,10 @@ export default function App() {
           {provider.models.map(([id, label]) => (
             <option key={id} value={id}>{label}</option>
           ))}
+          {/* A model the 🔑 self-test found on this host, or one typed there. */}
+          {!provider.models.some(([id]) => id === model) && (
+            <option value={model}>{model}</option>
+          )}
         </select>
         <button onClick={() => setShowNewProject(true)}>+ Project</button>
         {pid !== null && (
@@ -405,7 +420,7 @@ export default function App() {
         />
       )}
       {showKey && (
-        <ApiKeyModal onSubmit={saveKey} onClose={() => setShowKey(false)} />
+        <ApiKeyModal onSubmit={saveKey} onClose={() => setShowKey(false)} onModel={chooseModel} />
       )}
       {showDetails && project && (
         <ProjectDetailsModal
@@ -599,6 +614,19 @@ function PromptModal({
   );
 }
 
+/** The catalogue entries this app could actually use.
+ *
+ *  A gateway's model list is not a list of chat models: kie.ai resells image,
+ *  video and audio models too, and offering one as "click to use it" would
+ *  swap a working setup for a model that cannot answer a Messages request at
+ *  all. Prefer the Claude ids; fall back to the whole list only when nothing
+ *  names itself, because an unfamiliar naming scheme is not a reason to offer
+ *  the user nothing. */
+function chatModels(ids: string[]): string[] {
+  const claude = ids.filter((id) => /claude/i.test(id));
+  return (claude.length ? claude : ids).slice(0, 12);
+}
+
 /* --------------------------------------------------------- AI key modal */
 /** Paste a key, get a working app.
  *
@@ -608,10 +636,12 @@ function PromptModal({
  *  it, and this dialog shows what it detected before anything is saved. The
  *  override exists for keys that carry no recognisable prefix. */
 function ApiKeyModal({
-  onSubmit, onClose,
+  onSubmit, onClose, onModel,
 }: {
   onSubmit: (key: string, pref: ProviderPref) => void;
   onClose: () => void;
+  /** Adopt a model id the self-test found on the host it was run against. */
+  onModel: (id: string, on: ProviderInfo) => void;
 }) {
   const [raw, setRaw] = useState(() => getApiKey());
   const [pref, setPref] = useState<ProviderPref>(() => getProviderPref());
@@ -623,10 +653,44 @@ function ApiKeyModal({
   // A recognised key always goes to its own provider — a chosen one is only
   // used for keys whose prefix says nothing.
   const ignored = overrideIgnored(key, pref);
+  const [testing, setTesting] = useState(false);
+  const [probe, setProbe] = useState<ProbeResult | null>(null);
+  const [live, setLive] = useState<ProbeStep[]>([]);
+  const [picked, setPicked] = useState("");
   // Where an unrecognised key would go if the user said so — named in full, so
   // a kie.ai key with an unexpected prefix is one click from working.
   const other = PROVIDER_LIST.find((p) => p.id !== active.id) || active;
   const submit = () => onSubmit(raw, pref);
+
+  // Ask the host what it accepts, before blaming the user's key. A gateway
+  // that refuses one model id, one reply length or images answers every real
+  // request with the same opaque 500; this takes them one at a time and keeps
+  // the reply-length ceiling it finds.
+  const runTest = async () => {
+    if (!key || testing) return;
+    setTesting(true);
+    setProbe(null);
+    setLive([]);
+    setPicked("");
+    try {
+      const chosen = getModel();
+      // Each step lands on screen as it finishes: a test that walks a ladder of
+      // requests must not look like a frozen dialog.
+      const r = await probeProvider(key, chosen, active, (st) => setLive((prev) => [...prev, st]));
+      setProbe(r);
+      // Only a settled ladder is worth storing. A test that never got that far
+      // (rate limited, model refused, offline) knows nothing about the ceiling,
+      // and writing its 0 would throw away a working one found earlier.
+      if (r.model === chosen && r.lengthOk) setMaxTokensCap(active, r.cap);
+    } catch (e: any) {
+      setProbe({
+        steps: [], models: [], cap: 0, lengthOk: false, vision: false, model: "",
+        verdict: `The test could not run: ${String(e?.message || e)}`,
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const options: Array<{ id: ProviderPref; label: string; hint: string }> = [
     { id: "auto", label: "✨ Auto-detect", hint: "Use whichever provider the key belongs to (recommended)." },
@@ -697,10 +761,76 @@ function ApiKeyModal({
         </div>
       )}
 
+      {(testing || probe) && (
+        <div className="probe" role="status" aria-live="polite">
+          {testing && <div className="muted small">Asking {active.short} what it accepts…</div>}
+          {testing && live.length > 0 && (
+            <ul className="probe-steps">
+              {live.map((st, i) => (
+                <li key={`${st.id}-${i}`} className={st.info ? "info" : st.ok ? "ok" : "bad"}>
+                  {st.info ? "•" : st.ok ? "✓" : "✗"} {st.label}
+                  {!st.ok && st.status ? ` (${st.status})` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {probe && (
+            <>
+              <div className="probe-verdict">{probe.verdict}</div>
+              {probe.steps.length > 0 && (
+                <ul className="probe-steps">
+                  {probe.steps.map((st, i) => (
+                    <li key={`${st.id}-${i}`} className={st.info ? "info" : st.ok ? "ok" : "bad"}>
+                      {st.info ? "•" : st.ok ? "✓" : "✗"} {st.label}
+                      {!st.ok && st.status ? ` (${st.status})` : ""}
+                      {st.detail ? <span className="muted"> — {st.detail}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {chatModels(probe.models).length > 0 && (
+                <>
+                  <div className="field">
+                    Models {active.short} serves — click one to use it
+                  </div>
+                  <div className="prov-grid">
+                    {chatModels(probe.models).map((id) => (
+                      <button key={id} className={`prov-opt ${picked === id ? "on" : ""}`}
+                        aria-pressed={picked === id}
+                        title={id === probe.model
+                          ? `Use ${id} — the one this test found working`
+                          : `Use ${id}`}
+                        onClick={() => {
+                          onModel(id, active);
+                          setPicked(id);
+                          // The ceiling was measured on this one, so it applies.
+                          if (id === probe.model && probe.lengthOk) setMaxTokensCap(active, probe.cap);
+                        }}>
+                        {id === probe.model ? `★ ${id}` : id}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="prov-status">
+                    {picked
+                      ? <>✓ Now using <b>{picked}</b> for drawings and chat.</>
+                      : <>★ marks the one this test got a reply from. Models this
+                        app cannot use (image, video, audio) are left out.</>}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       <div className="row" style={{ marginTop: 10, alignItems: "center", gap: 8 }}>
         <a className="link" href={active.keyUrl} target="_blank" rel="noreferrer noopener">
           Get {active.article} {active.short} key ↗
         </a>
+        <button onClick={runTest} disabled={!key || testing}
+          title={`Send ${active.short} a few one-word requests and report exactly what it accepts`}>
+          {testing ? "Testing…" : "Test connection"}
+        </button>
         <div className="spacer" />
         {getApiKey() && (
           <button onClick={() => onSubmit("", pref)} title="Remove the stored key from this browser">

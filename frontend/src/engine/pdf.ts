@@ -14,6 +14,12 @@ export interface RenderedPage {
 }
 
 const MAX_PX = 2600; // longest edge — higher res so small dimension text is legible
+// Anthropic refuses an image over 5 MB (base64), and a gateway in front of it
+// may have a smaller body limit still and answer with an opaque 500. A dense
+// drawing rasterised at 2600px can pass either. Stay comfortably under, and
+// step the page down until it fits rather than failing the whole run.
+const MAX_IMAGE_B64 = 3_600_000;
+const MIN_PX = 900; // below this the dimension text stops being legible anyway
 
 export async function renderPdf(
   file: File,
@@ -34,17 +40,25 @@ export async function renderPdf(
         .replace(/\s+/g, " ")
         .trim();
 
-      let viewport = page.getViewport({ scale: 2 });
-      const longest = Math.max(viewport.width, viewport.height);
-      if (longest > MAX_PX) viewport = page.getViewport({ scale: (2 * MAX_PX) / longest });
-
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.ceil(viewport.width);
-      canvas.height = Math.ceil(viewport.height);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Could not get a 2D canvas context for PDF rendering");
-      await page.render({ canvas, canvasContext: ctx, viewport } as any).promise;
-      const image_b64 = canvas.toDataURL("image/png").split(",")[1] || "";
+      const base = page.getViewport({ scale: 1 });
+      const longest = Math.max(base.width, base.height);
+      let px = Math.min(MAX_PX, longest * 2);
+      let image_b64 = "";
+      // Render, and if the encoded page is too big for the provider to accept,
+      // render it again smaller. Two or three steps is plenty in practice.
+      while (true) {
+        const viewport = page.getViewport({ scale: px / longest });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Could not get a 2D canvas context for PDF rendering");
+        await page.render({ canvas, canvasContext: ctx, viewport } as any).promise;
+        image_b64 = canvas.toDataURL("image/png").split(",")[1] || "";
+        if (image_b64.length <= MAX_IMAGE_B64 || px <= MIN_PX) break;
+        px = Math.max(MIN_PX, Math.round(px * 0.75));
+        onProgress?.(`Page ${n} is a heavy drawing — re-rendering it smaller so it can be sent…`);
+      }
 
       out.push({ page_no: n, text, image_b64 });
       page.cleanup();
