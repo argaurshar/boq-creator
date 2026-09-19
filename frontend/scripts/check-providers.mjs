@@ -88,6 +88,27 @@ try {
     if (sent.includes(wrong)) failures.push(`${key} reached ${wrong}`);
   }
 
+  // A 401 must diagnose the right thing. A recognised key really is bad; a key
+  // whose prefix names no provider was only sent here by fallback, so the
+  // message must offer the other provider rather than call the key invalid.
+  globalThis.fetch = async () => ({
+    ok: false, status: 401,
+    json: async () => ({ type: "authentication_error" }),
+    text: async () => '{"type":"authentication_error","message":"invalid x-api-key"}',
+  });
+  const rejected = async (key, provider) => {
+    try { await C.claudeParseNl("x", {}, key, "claude-sonnet-4-6", "", provider); return ""; }
+    catch (e) { return String(e.message); }
+  };
+  let m401 = await rejected("sk-kie-abcdefgh12");
+  if (!/Your Kie\.ai key looks invalid/.test(m401)) failures.push(`401 on a known key: ${m401}`);
+  m401 = await rejected("mystery-key-9999", P.PROVIDERS.anthropic);
+  if (!/not one we recognise/.test(m401) || !/choose Kie\.ai/.test(m401))
+    failures.push(`401 on an unknown key must offer Kie.ai: ${m401}`);
+  if (/looks invalid/.test(m401)) failures.push("an unrecognised key must not be called invalid");
+  m401 = await rejected("mystery-key-9999", P.PROVIDERS.kie);
+  if (!/choose Anthropic/.test(m401)) failures.push(`401 on kie must offer Anthropic: ${m401}`);
+
   // A failed fetch must be explained, not surfaced as "Failed to fetch".
   globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
   let msg = "";

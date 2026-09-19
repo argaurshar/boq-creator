@@ -5,7 +5,9 @@
 // backend/app/ai/claude_provider.py.
 import { extractPrompt, nlPrompt, reviewPrompt } from "./prompts";
 import { DEFAULT_DISCIPLINE } from "./disciplines";
-import { ProviderInfo, authHeaders, resolveProvider } from "./providers";
+import {
+  PROVIDER_LIST, ProviderInfo, authHeaders, detectProvider, resolveProvider,
+} from "./providers";
 
 export const DEFAULT_MODEL = "claude-sonnet-4-6";
 /** Hard ceiling for one provider call. */
@@ -45,11 +47,24 @@ function errorDetail(body: string): string {
   return t.slice(0, 200);
 }
 
-function friendlyApiError(p: ProviderInfo, status: number, body: string): string {
+/** The provider a key was *not* sent to — what to suggest when one rejects it. */
+function otherProvider(p: ProviderInfo): ProviderInfo {
+  return PROVIDER_LIST.find((q) => q.id !== p.id) || p;
+}
+
+function friendlyApiError(p: ProviderInfo, status: number, body: string, key = ""): string {
   const detail = errorDetail(body);
   const tail = detail ? ` (${detail})` : "";
-  if (status === 401 || status === 403)
-    return `Your ${p.short} key looks invalid or unauthorized. Open 🔑 AI key and paste a valid one (${p.short} keys start with ${p.keyHint}). If the key is from the other provider, the 🔑 dialog spots that for you.`;
+  if (status === 401 || status === 403) {
+    // A key whose prefix names no provider was sent here by fallback, not by
+    // recognition — so "your key is invalid" may be the wrong diagnosis. The
+    // key may be perfectly good and simply belong to the other host, which the
+    // user can say in the 🔑 dialog.
+    const other = otherProvider(p);
+    if (!detectProvider(key))
+      return `${p.short} rejected this key (${status}). Its prefix is not one we recognise, so it went to ${p.short}, whose keys start with ${p.keyHint}. If the key came from ${other.short}, open 🔑 AI key, choose ${other.short} and save — the key then goes to ${other.short} instead.`;
+    return `Your ${p.short} key looks invalid or unauthorized. Open 🔑 AI key and paste a valid one (${p.short} keys start with ${p.keyHint}).`;
+  }
   if (status === 404)
     return `${p.short} does not recognise this endpoint or model (404). Try the other model in the 🔑 AI model picker.${tail}`;
   if (status === 413)
@@ -129,7 +144,7 @@ async function jsonCall(
     }
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(friendlyApiError(p, res.status, body));
+      throw new Error(friendlyApiError(p, res.status, body, apiKey));
     }
     try {
       // A 200 carrying something other than a Messages reply (a gateway

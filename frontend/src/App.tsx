@@ -623,6 +623,9 @@ function ApiKeyModal({
   // A recognised key always goes to its own provider — a chosen one is only
   // used for keys whose prefix says nothing.
   const ignored = overrideIgnored(key, pref);
+  // Where an unrecognised key would go if the user said so — named in full, so
+  // a kie.ai key with an unexpected prefix is one click from working.
+  const other = PROVIDER_LIST.find((p) => p.id !== active.id) || active;
   const submit = () => onSubmit(raw, pref);
 
   const options: Array<{ id: ProviderPref; label: string; hint: string }> = [
@@ -682,7 +685,8 @@ function ApiKeyModal({
           <>✓ Detected {active.article} <b>{active.short}</b> key — calls go there.</>
         ) : (
           <>⚠ Unrecognised key prefix — it will be sent to <b>{active.short}</b>.
-            Pick the provider above if that is wrong.</>
+            If this key came from <b>{other.short}</b>, pick {other.short} above
+            and save: it then goes to {other.short} instead.</>
         )}
       </div>
       {ignored && (
