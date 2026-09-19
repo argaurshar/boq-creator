@@ -1,11 +1,13 @@
-// Direct browser -> Anthropic calls using the user's own key (entered in the
+// Direct browser -> provider calls using the user's own key (entered in the
 // UI, kept in localStorage). The key never leaves the browser except to go to
-// Anthropic. Mirrors backend/app/ai/claude_provider.py.
+// the provider the key belongs to — Anthropic, or a gateway serving the same
+// Messages API such as kie.ai (see ./providers). Mirrors
+// backend/app/ai/claude_provider.py.
 import { extractPrompt, nlPrompt, reviewPrompt } from "./prompts";
 import { DEFAULT_DISCIPLINE } from "./disciplines";
+import { ProviderInfo, authHeaders, resolveProvider } from "./providers";
 
 export const DEFAULT_MODEL = "claude-sonnet-4-6";
-const API_URL = "https://api.anthropic.com/v1/messages";
 
 type Content = Array<Record<string, any>>;
 
@@ -19,17 +21,37 @@ function stripFences(text: string): string {
   return t.trim();
 }
 
-// Map an Anthropic HTTP error to a short, actionable message. The raw API JSON
-// (e.g. {"type":"authentication_error","message":"invalid x-api-key"}) is
-// confusing to end users, so common statuses get plain-language guidance.
-function friendlyApiError(status: number, body: string): string {
+// Map a provider HTTP error to a short, actionable message naming the provider
+// the key belongs to. The raw API JSON (e.g.
+// {"type":"authentication_error","message":"invalid x-api-key"}) is confusing
+// to end users, so common statuses get plain-language guidance.
+function friendlyApiError(p: ProviderInfo, status: number, body: string): string {
   if (status === 401 || status === 403)
-    return "Your Anthropic API key looks invalid or unauthorized. Open 🔑 (top right) and paste a valid key (it starts with 'sk-ant-…').";
+    return `Your ${p.label} key looks invalid or unauthorized. Open 🔑 (top right) and paste a valid key (it ${p.keyHint}). If the key is from the other provider, the 🔑 dialog detects that for you.`;
+  if (status === 404)
+    return `${p.label} does not recognise this endpoint or model (404). Check the model in the top bar, or switch provider in the 🔑 dialog. ${body.slice(0, 160)}`;
   if (status === 429)
-    return "Anthropic rate limit reached — wait a few seconds and try again.";
+    return `${p.label} rate limit reached — wait a few seconds and try again.`;
   if (status === 402)
-    return "Your Anthropic account is out of credits — add billing/credits in the Anthropic console, then retry.";
-  return `Anthropic API ${status}: ${body.slice(0, 200)}`;
+    return `Your ${p.label} account is out of credits — top up at ${p.keyUrl}, then retry.`;
+  return `${p.label} API ${status}: ${body.slice(0, 200)}`;
+}
+
+// fetch() rejects (rather than returning a status) when the request never
+// completes: offline, DNS failure, or a CORS policy that blocks a browser
+// origin. Only the provider can allow the origin, so say so plainly instead of
+// surfacing "Failed to fetch".
+function friendlyNetworkError(p: ProviderInfo, e: any): Error {
+  const msg = String(e?.message || e);
+  if (/failed to fetch|load failed|networkerror|fetch failed/i.test(msg)) {
+    return new Error(
+      `Could not reach ${p.label} from the browser (${msg}). Check your internet ` +
+      `connection. If you are on a page served over the web, ${p.label} must also ` +
+      `allow browser requests from this site — if it does not, run the app locally ` +
+      `or use a key from the other provider.`
+    );
+  }
+  return e instanceof Error ? e : new Error(msg);
 }
 
 async function jsonCall(
@@ -37,31 +59,34 @@ async function jsonCall(
   content: Content,
   apiKey: string,
   model: string,
-  maxTokens = 16000
+  maxTokens = 16000,
+  provider?: ProviderInfo
 ): Promise<any> {
+  // No provider passed (or an older call site): let the key decide.
+  const p = provider || resolveProvider(apiKey);
   let lastErr: any = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const sys = attempt === 0
       ? system
       : system + "\n\nYour previous reply was not valid JSON. Return ONLY the JSON object.";
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        system: sys,
-        messages: [{ role: "user", content }],
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(p.url, {
+        method: "POST",
+        headers: authHeaders(p, apiKey),
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          system: sys,
+          messages: [{ role: "user", content }],
+        }),
+      });
+    } catch (e: any) {
+      throw friendlyNetworkError(p, e);
+    }
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(friendlyApiError(res.status, body));
+      throw new Error(friendlyApiError(p, res.status, body));
     }
     const data = await res.json();
     const text = (data.content || [])
@@ -82,14 +107,15 @@ export async function claudeParseNl(
   context: Record<string, any>,
   apiKey: string,
   model: string = DEFAULT_MODEL,
-  extraShapes = ""
+  extraShapes = "",
+  provider?: ProviderInfo
 ): Promise<any> {
   const content: Content = [{
     type: "text",
     text: `Project defaults: ${JSON.stringify(context)}\n\nInstruction:\n${text}`,
   }];
   const discipline = String(context?.discipline || DEFAULT_DISCIPLINE);
-  return jsonCall(nlPrompt(discipline, extraShapes), content, apiKey, model, 8000);
+  return jsonCall(nlPrompt(discipline, extraShapes), content, apiKey, model, 8000, provider);
 }
 
 function dedupeMembers(lists: any[][]): any[] {
@@ -116,6 +142,8 @@ export async function claudeExtract(args: {
   discipline?: string;
   /** Member-shape text contributed by discipline packs. */
   extraShapes?: string;
+  /** Where to send the request; defaults to whatever the key says. */
+  provider?: ProviderInfo;
 }): Promise<any> {
   const model = args.model || DEFAULT_MODEL;
   const EXTRACT_PROMPT = extractPrompt(args.discipline || DEFAULT_DISCIPLINE, args.extraShapes || "");
@@ -135,7 +163,7 @@ export async function claudeExtract(args: {
   });
 
   // Pass 1 — extract everything.
-  const first = await jsonCall(EXTRACT_PROMPT, base, args.apiKey, model);
+  const first = await jsonCall(EXTRACT_PROMPT, base, args.apiKey, model, 16000, args.provider);
 
   // Pass 2 — completeness sweep: find anything missed. Re-checking each schedule
   // row and grid line against what's already captured catches under-extraction.
@@ -158,7 +186,7 @@ export async function claudeExtract(args: {
   ];
   let second: any = { members: [], unresolved: [] };
   try {
-    second = await jsonCall(EXTRACT_PROMPT, sweep, args.apiKey, model);
+    second = await jsonCall(EXTRACT_PROMPT, sweep, args.apiKey, model, 16000, args.provider);
   } catch {
     /* sweep is best-effort; keep pass-1 results if it fails */
   }
@@ -176,6 +204,7 @@ export async function claudeExtract(args: {
 export async function claudeReview(args: {
   page_no: number; page_image_b64: string | null; members: any[];
   context: Record<string, any>; apiKey: string; model?: string; extraShapes?: string;
+  provider?: ProviderInfo;
 }): Promise<any[]> {
   if (!args.page_image_b64 || !(args.members || []).length) return [];
   const model = args.model || DEFAULT_MODEL;
@@ -191,7 +220,7 @@ export async function claudeReview(args: {
     },
   ];
   try {
-    const res = await jsonCall(reviewPrompt(args.extraShapes || ""), content, args.apiKey, model, 12000);
+    const res = await jsonCall(reviewPrompt(args.extraShapes || ""), content, args.apiKey, model, 12000, args.provider);
     const reviews = Array.isArray(res?.reviews) ? res.reviews : [];
     return reviews.filter((r: any) => r && r.op && r.op !== "ok");
   } catch {

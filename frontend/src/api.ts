@@ -15,6 +15,9 @@ import { CATEGORY_ORDER } from "./engine/compute";
 import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
 import { claudeParseNl, claudeExtract, claudeReview, DEFAULT_MODEL } from "./engine/claude";
+import {
+  ProviderInfo, ProviderPref, modelFor, normalizeKey, resolveProvider,
+} from "./engine/providers";
 import { downloadBoqXlsx } from "./engine/export";
 import {
   PACK_PROMPT_SHAPES, PACK_DEMO_MEMBERS, PACK_UNITS, PACK_DEMO_RATES,
@@ -64,25 +67,54 @@ export interface Member {
 }
 
 // --------------------------------------------------------------------------- //
-// Bring-your-own Anthropic key (kept only in this browser).
+// Bring-your-own AI key (kept only in this browser).
+//
+// The key may be an Anthropic key (sk-ant-…) or a kie.ai key (sk-kie-…), which
+// serves the same Claude models on kie.ai credits. Paste either one: the
+// prefix picks the endpoint, unless the user overrides it in the key dialog.
 // --------------------------------------------------------------------------- //
-const KEY_STORAGE = "boq.anthropicApiKey";
+const KEY_STORAGE = "boq.anthropicApiKey";     // historical name, any provider
+const PROVIDER_STORAGE = "boq.apiProvider";    // "auto" | "anthropic" | "kie"
 
 export function getApiKey(): string {
   try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; }
 }
 export function setApiKey(key: string): void {
   try {
-    if (key) localStorage.setItem(KEY_STORAGE, key);
+    const k = normalizeKey(key);
+    if (k) localStorage.setItem(KEY_STORAGE, k);
     else localStorage.removeItem(KEY_STORAGE);
   } catch { /* ignore */ }
 }
 
+/** The user's provider choice: "auto" (decide from the key) by default. */
+export function getProviderPref(): ProviderPref {
+  try {
+    const v = localStorage.getItem(PROVIDER_STORAGE);
+    return v === "anthropic" || v === "kie" ? v : "auto";
+  } catch { return "auto"; }
+}
+export function setProviderPref(pref: ProviderPref): void {
+  try {
+    if (pref === "auto") localStorage.removeItem(PROVIDER_STORAGE);
+    else localStorage.setItem(PROVIDER_STORAGE, pref);
+  } catch { /* ignore */ }
+}
+
+/** The provider every AI call in this browser goes to right now. */
+export function getProvider(): ProviderInfo {
+  return resolveProvider(getApiKey(), getProviderPref());
+}
+
 // Which Claude model to use for AI calls (extraction + chat). Default Sonnet;
 // users can switch to Opus for maximum extraction completeness on hard drawings.
+// The stored value is filtered through the active provider, so a model the
+// provider does not serve can never be sent.
 const MODEL_STORAGE = "boq.claudeModel";
 export function getModel(): string {
-  try { return localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; }
+  try {
+    return modelFor(getProvider(), localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL);
+  } catch { return DEFAULT_MODEL; }
 }
 export function setModel(model: string): void {
   try { localStorage.setItem(MODEL_STORAGE, model); } catch { /* ignore */ }
@@ -266,7 +298,8 @@ export const api = {
     let provider: string;
     if (key) {
       provider = "claude";
-      result = await claudeParseNl(text, context, key, getModel(), packPromptShapes());
+      result = await claudeParseNl(
+        text, context, key, getModel(), packPromptShapes(), getProvider());
     } else {
       provider = "mock";
       result = mockParseNl(text, discipline);
@@ -308,7 +341,7 @@ export const api = {
     const p = getProject(pid);
     const key = getApiKey();
     if (!key) {
-      throw new Error("Set your Anthropic API key (🔑 top right) to read PDFs.");
+      throw new Error("Set your AI key (🔑 top right) to read PDFs — an Anthropic (sk-ant-…) or kie.ai (sk-kie-…) key both work.");
     }
     // Lazy-load pdf.js (large) only when a PDF is actually uploaded.
     const { renderPdf } = await import("./engine/pdf");
@@ -327,6 +360,7 @@ export const api = {
       const result = await claudeExtract({
         page_no: pg.page_no, page_text: pg.text, page_image_b64: pg.image_b64,
         scale: "unknown", context: ctx, apiKey: key, model: getModel(), onProgress,
+        provider: getProvider(),
         discipline, extraShapes: packPromptShapes(),
       });
       // Save members, remembering id↔label↔type so review suggestions can target them.
@@ -348,7 +382,7 @@ export const api = {
         const sugg = await claudeReview({
           page_no: pg.page_no, page_image_b64: pg.image_b64,
           members: result.members || [], context: ctx, apiKey: key, model: getModel(),
-          extraShapes: packPromptShapes(),
+          extraShapes: packPromptShapes(), provider: getProvider(),
         });
         for (const r of sugg) {
           const lbl = String(r.target_label || "").trim().toLowerCase();

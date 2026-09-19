@@ -3,6 +3,9 @@ import {
   api,
   getApiKey,
   setApiKey,
+  getProvider,
+  getProviderPref,
+  setProviderPref,
   getModel,
   setModel,
   Boq,
@@ -23,6 +26,9 @@ import {
 } from "./engine/disciplines";
 import type { OutOfScopeEntry } from "./engine/boq";
 import { PACK_TYPES, PACK_UI } from "./engine/packs";
+import {
+  PROVIDER_LIST, ProviderPref, detectProvider, normalizeKey, resolveProvider,
+} from "./engine/providers";
 
 // Right-aligned columns of the seven-column BOQ contract.
 const NUM_COLS = new Set<string>(["Quantity", "Rate", "Amount"]);
@@ -93,6 +99,8 @@ export default function App() {
   const [rates, setRates] = useState<RateRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState<boolean>(() => !!getApiKey());
+  // Which host the key talks to (Anthropic direct, or kie.ai credits).
+  const [provider, setProviderState] = useState(() => getProvider());
   const [model, setModelState] = useState<string>(() => getModel());
   // In-app dialogs instead of window.prompt(): the latter is blocked in
   // sandboxed/embedded browsers (e.g. VS Code's Simple Browser).
@@ -114,11 +122,17 @@ export default function App() {
 
   const project = projects.find((p) => p.id === pid) || null;
 
-  const saveKey = (raw: string) => {
+  const saveKey = (raw: string, pref: ProviderPref) => {
     setShowKey(false);
-    const key = raw.trim();
+    const key = normalizeKey(raw);
     setApiKey(key);
+    setProviderPref(pref);
     setHasKey(!!key);
+    setProviderState(getProvider());
+    // A model the new provider does not serve would 404 on the first call, so
+    // getModel() filters it — mirror that into the picker.
+    const m = getModel();
+    if (m !== model) setModelState(m);
   };
 
   // A refresh started for one project must never paint another: debounced
@@ -260,11 +274,11 @@ export default function App() {
           onClick={() => setShowKey(true)}
           title={
             hasKey
-              ? "An Anthropic API key is set in this browser. Click to change or remove it."
-              : "No AI key set — add your Anthropic key to read drawings. Chat and demo data work without one."
+              ? `Your ${provider.label} key is set in this browser. Click to change it, switch provider, or remove it.`
+              : "No AI key set — paste an Anthropic (sk-ant-…) or a kie.ai (sk-kie-…) key to read drawings. Chat and demo data work without one."
           }
         >
-          {hasKey ? "🔑 AI key: on" : "🔑 Set AI key"}
+          {hasKey ? `🔑 ${provider.short}` : "🔑 Set AI key"}
         </button>
         <button
           className="themebtn"
@@ -280,11 +294,12 @@ export default function App() {
         <select
           value={model}
           aria-label="AI model"
-          title="AI model used to read drawings and chat. Opus reads the most thoroughly; Sonnet is faster/cheaper."
+          title={`AI model used to read drawings and chat, via ${provider.label}. Opus reads the most thoroughly; Sonnet is faster/cheaper.`}
           onChange={(e) => { setModel(e.target.value); setModelState(e.target.value); }}
         >
-          <option value="claude-sonnet-4-6">Sonnet (fast)</option>
-          <option value="claude-opus-4-8">Opus (most thorough)</option>
+          {provider.models.map(([id, label]) => (
+            <option key={id} value={id}>{label}</option>
+          ))}
         </select>
         <button onClick={() => setShowNewProject(true)}>+ Project</button>
         {pid !== null && (
@@ -389,21 +404,7 @@ export default function App() {
         />
       )}
       {showKey && (
-        <PromptModal
-          title="Anthropic API key"
-          label="API key"
-          defaultValue={getApiKey()}
-          password
-          submitLabel="Save"
-          message={
-            "Enables live AI drawing extraction and plain-English editing. " +
-            "Stored only in this browser and sent to your backend per request — " +
-            "never saved server-side. Leave blank to remove it (the app then " +
-            "uses the key-free demo mode)."
-          }
-          onSubmit={saveKey}
-          onClose={() => setShowKey(false)}
-        />
+        <ApiKeyModal onSubmit={saveKey} onClose={() => setShowKey(false)} />
       )}
       {showDetails && project && (
         <ProjectDetailsModal
@@ -587,6 +588,111 @@ function PromptModal({
   );
 }
 
+/* --------------------------------------------------------- AI key modal */
+/** Paste a key, get a working app.
+ *
+ *  The app speaks the Anthropic Messages API, which two hosts serve: Anthropic
+ *  itself and kie.ai (same Claude models, billed as kie.ai credits). The user
+ *  should not have to know which endpoint that implies — the key prefix says
+ *  it, and this dialog shows what it detected before anything is saved. The
+ *  override exists for keys that carry no recognisable prefix. */
+function ApiKeyModal({
+  onSubmit, onClose,
+}: {
+  onSubmit: (key: string, pref: ProviderPref) => void;
+  onClose: () => void;
+}) {
+  const [raw, setRaw] = useState(() => getApiKey());
+  const [pref, setPref] = useState<ProviderPref>(() => getProviderPref());
+  const [inputId] = useState(() => `key-in-${++dialogSeq}`);
+
+  const key = normalizeKey(raw);
+  const detected = detectProvider(key);
+  const active = resolveProvider(key, pref);
+  const mismatch = pref !== "auto" && detected !== null && detected !== pref;
+  const submit = () => onSubmit(raw, pref);
+
+  const options: Array<{ id: ProviderPref; label: string; hint: string }> = [
+    { id: "auto", label: "✨ Auto-detect", hint: "Use whichever provider the key belongs to (recommended)." },
+    ...PROVIDER_LIST.map((p) => ({
+      id: p.id as ProviderPref, label: p.short, hint: `${p.blurb} Keys ${p.keyHint}.`,
+    })),
+  ];
+
+  return (
+    <Dialog title="AI key" width={470} onClose={onClose}>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Paste an <b>Anthropic</b> key (sk-ant-…) or a <b>kie.ai</b> key
+        (sk-kie-…) — the same Claude models, billed as kie.ai credits. The app
+        works out which one it is and calls the matching endpoint. The key is
+        kept only in this browser and is sent to no one but that provider.
+        Leave it blank to remove it (the app then uses the key-free demo mode).
+      </p>
+
+      <div className="field">Provider</div>
+      <div className="prov-grid" role="group" aria-label="AI provider">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            className={`prov-opt ${pref === o.id ? "on" : ""}`}
+            aria-pressed={pref === o.id}
+            title={o.hint}
+            onClick={() => setPref(o.id)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      <label className="field" htmlFor={inputId} style={{ marginTop: 12 }}>API key</label>
+      <input
+        id={inputId}
+        className="w"
+        type="password"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="sk-ant-… or sk-kie-…"
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+      />
+
+      <div className={`prov-status ${key && !detected ? "warn" : ""}`} role="status" aria-live="polite">
+        {!key ? (
+          <>Anthropic keys {PROVIDER_LIST[0].keyHint}; kie.ai keys {PROVIDER_LIST[1].keyHint}.</>
+        ) : detected ? (
+          <>✓ Detected a <b>{resolveProvider(key, "auto").label}</b> key
+            {pref !== "auto" && <> · sending to <b>{active.label}</b> (your choice)</>}
+          </>
+        ) : (
+          <>⚠ Unrecognised key prefix — it will be sent to <b>{active.label}</b>.
+            Pick the provider above if that is wrong.</>
+        )}
+      </div>
+      {mismatch && (
+        <div className="prov-status warn">
+          ⚠ This looks like a {resolveProvider(key, "auto").short} key but you
+          chose {active.short}. Switch to ✨ Auto-detect unless you mean it.
+        </div>
+      )}
+
+      <div className="row" style={{ marginTop: 10, alignItems: "center", gap: 8 }}>
+        <a className="link" href={active.keyUrl} target="_blank" rel="noreferrer noopener">
+          Get a {active.short} key ↗
+        </a>
+        <div className="spacer" />
+        {getApiKey() && (
+          <button onClick={() => onSubmit("", pref)} title="Remove the stored key from this browser">
+            Remove key
+          </button>
+        )}
+        <button onClick={onClose}>Cancel</button>
+        <button className="primary" onClick={submit}>Save</button>
+      </div>
+    </Dialog>
+  );
+}
+
 /* ----------------------------------------------------------------- Left */
 /** The discipline gate: four modes, exactly one active per run. Shows plainly
  *  what the active pack measures and what it does not cover yet, so a focused
@@ -668,7 +774,7 @@ function LeftPanel({
     if (!list.length) return;
     if (!hasKey) {
       // Never wipe the current BOQ for a run that cannot start.
-      setBusy("Set your Anthropic key (🔑 top right) to read drawings.");
+      setBusy("Set your AI key (🔑 top right) to read drawings — Anthropic or kie.ai.");
       onOpenKey();
       return;
     }
@@ -788,7 +894,7 @@ function LeftPanel({
           )}
           {!hasKey && (
             <div className="keyhint">
-              Reading drawings needs your Anthropic key.
+              Reading drawings needs your AI key (Anthropic or kie.ai).
               <button className="link" onClick={onOpenKey}>🔑 Set AI key</button>
               <span className="muted small"> · no key? try demo data in step 3</span>
             </div>
@@ -806,7 +912,7 @@ function LeftPanel({
             disabled={!staged.length || running || !hasKey}
             onClick={runExtraction}
             title={
-              !hasKey ? "Set your Anthropic key (step 2) to read drawings"
+              !hasKey ? "Set your AI key (step 2) to read drawings"
               : !staged.length ? "Add at least one drawing in step 2"
               : `Read the drawings and build the ${dInfo.label} BOQ`
             }

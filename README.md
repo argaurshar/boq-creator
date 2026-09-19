@@ -59,7 +59,7 @@ uvicorn app.main:app --reload --port 8000
 Runs key-free by default (`AI_PROVIDER=mock`): plain-English add, manual add,
 quantities, rates and Excel export all work.
 
-For **live AI drawing extraction** you need an Anthropic API key. Two ways:
+For **live AI drawing extraction** you need an AI key. Two ways:
 
 - **In the app (recommended for shared/hosted instances):** click
   **🔑 Set AI key** in the top bar and paste your key. It is stored only in
@@ -67,6 +67,29 @@ For **live AI drawing extraction** you need an Anthropic API key. Two ways:
   so the host can stay key-less and each user brings their own.
 - **Server-side:** set `AI_PROVIDER=claude` and `ANTHROPIC_API_KEY` in the
   environment (see `.env.example`).
+
+### Which key? Anthropic or kie.ai
+
+The app speaks the Anthropic **Messages API**, and two hosts serve it. Paste
+either key — the prefix picks the endpoint, so there is nothing else to
+configure:
+
+| Key | Provider | Endpoint | Sent as | Get one |
+| --- | --- | --- | --- | --- |
+| `sk-ant-…` | Anthropic (direct) | `https://api.anthropic.com/v1/messages` | `x-api-key` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| `sk-kie-…` | [kie.ai](https://kie.ai) — same Claude models on kie.ai credits | `https://api.kie.ai/claude/v1/messages` | `Authorization: Bearer` | [kie.ai/api-key](https://kie.ai/api-key) |
+
+A `Bearer ` prefix, surrounding quotes or stray spaces are stripped, so pasting
+straight from either provider's docs works. The 🔑 dialog shows which provider
+it detected before you save, and has an override for keys with an unfamiliar
+prefix. Server-side, the same detection applies to `ANTHROPIC_API_KEY`; pin a
+host with `AI_API_PROVIDER=anthropic|kie` or point at another gateway with
+`ANTHROPIC_BASE_URL`.
+
+Browser calls go straight from your browser to that provider. Anthropic
+publishes the CORS headers a browser needs; if a gateway does not, the app says
+so plainly and you can run the local backend instead (which calls the provider
+server-side).
 
 ### Frontend
 
@@ -87,8 +110,8 @@ to `main`.
 
 To enable it once: **Settings → Pages → Build and deployment → Source: GitHub
 Actions**. The site then publishes to `https://<user>.github.io/boq-creator/`.
-Data is stored per-browser (localStorage); the Anthropic key (for AI features)
-is entered in the UI and kept only in the browser.
+Data is stored per-browser (localStorage); the AI key (Anthropic or kie.ai) is
+entered in the UI and kept only in the browser.
 
 The Python backend remains for local/Codespaces use and as the reference
 implementation the tests pin; the Pages build does not need it.
