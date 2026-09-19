@@ -8,6 +8,8 @@ import { DEFAULT_DISCIPLINE } from "./disciplines";
 import { ProviderInfo, authHeaders, resolveProvider } from "./providers";
 
 export const DEFAULT_MODEL = "claude-sonnet-4-6";
+/** Hard ceiling for one provider call. */
+const CALL_TIMEOUT_MS = 300_000;
 
 type Content = Array<Record<string, any>>;
 
@@ -97,10 +99,16 @@ async function jsonCall(
       ? system
       : system + "\n\nYour previous reply was not valid JSON. Return ONLY the JSON object.";
     let res: Response;
+    // A gateway that accepts the connection and then never answers would
+    // otherwise leave "Reading drawings…" spinning for ever. Well beyond any
+    // real call (vision + 16k output), but bounded.
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), CALL_TIMEOUT_MS);
     try {
       res = await fetch(p.url, {
         method: "POST",
         headers: authHeaders(p, apiKey),
+        signal: abort.signal,
         body: JSON.stringify({
           model,
           max_tokens: maxTokens,
@@ -109,7 +117,15 @@ async function jsonCall(
         }),
       });
     } catch (e: any) {
+      if (e?.name === "AbortError") {
+        throw new Error(
+          `${p.short} did not answer within ${Math.round(CALL_TIMEOUT_MS / 60000)} minutes — ` +
+          `the request was cancelled. Retry, or try the faster model.`
+        );
+      }
       throw friendlyNetworkError(p, e);
+    } finally {
+      clearTimeout(timer);
     }
     if (!res.ok) {
       const body = await res.text();
