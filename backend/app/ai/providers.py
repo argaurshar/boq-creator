@@ -32,6 +32,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "short": "Anthropic",
         "base_url": ANTHROPIC_BASE,
         "url": f"{ANTHROPIC_BASE}/v1/messages",
+        "models_url": f"{ANTHROPIC_BASE}/v1/models",
         "key_prefixes": ["sk-ant-"],
         "key_hint": "sk-ant-",
         "article": "an",
@@ -49,6 +50,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         # the client appends /v1/messages itself.
         "base_url": KIE_BASE,
         "url": f"{KIE_BASE}/v1/messages",
+        "models_url": f"{KIE_BASE}/v1/models",
         "key_prefixes": ["sk-kie-"],
         "key_hint": "sk-kie-",
         "article": "a",
@@ -159,6 +161,12 @@ def auth_headers(provider: dict[str, Any], key: str) -> dict[str, str]:
 
 
 def model_for(provider: dict[str, Any], model: str) -> str:
-    """Keep a configured model only if the active provider serves it."""
-    ids = [m for m, _ in provider["models"]]
-    return model if model in ids else ids[0]
+    """The model id to send.
+
+    Whatever was configured wins. The per-provider list is a convenience for
+    the picker, not a catalogue we can vouch for — a gateway may serve model
+    ids we have never heard of — and silently replacing a chosen model turns
+    "that model is not served here" into a confusing wrong answer. Only an
+    empty choice takes the default.
+    """
+    return str(model or "").strip() or provider["models"][0][0]

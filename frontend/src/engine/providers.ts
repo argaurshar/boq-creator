@@ -24,6 +24,8 @@ export interface ProviderInfo {
   baseUrl: string;
   /** Messages endpoint (POST) — baseUrl + /v1/messages. */
   url: string;
+  /** Model catalogue (GET) — baseUrl + /v1/models. Not every host serves it. */
+  modelsUrl: string;
   /** Key prefixes that identify this provider. */
   keyPrefixes: string[];
   /** The key's prefix, bare: call sites write the sentence around it. */
@@ -60,6 +62,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     short: "Anthropic",
     baseUrl: ANTHROPIC_BASE,
     url: `${ANTHROPIC_BASE}/v1/messages`,
+    modelsUrl: `${ANTHROPIC_BASE}/v1/models`,
     keyPrefixes: ["sk-ant-"],
     keyHint: "sk-ant-",
     article: "an",
@@ -77,6 +80,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     // client appends /v1/messages itself — which is what we do here.
     baseUrl: KIE_BASE,
     url: `${KIE_BASE}/v1/messages`,
+    modelsUrl: `${KIE_BASE}/v1/models`,
     keyPrefixes: ["sk-kie-"],
     keyHint: "sk-kie-",
     article: "a",
@@ -186,9 +190,16 @@ export function modelsFor(provider: ProviderInfo): Array<[string, string]> {
   return provider.models;
 }
 
-/** Keep a stored model only if the active provider serves it. */
+/**
+ * The model id to send.
+ *
+ * Whatever the user chose wins. The per-provider list above is a convenience
+ * for the picker, not a catalogue we can vouch for: a gateway may serve model
+ * ids we have never heard of (ask it with listProviderModels), and silently
+ * replacing a chosen model with one of ours turns "that model is not served
+ * here" into a confusing wrong-answer. Only an empty choice takes the default.
+ */
 export function modelFor(provider: ProviderInfo, model: string): string {
-  return provider.models.some(([id]) => id === model)
-    ? model
-    : provider.models[0][0];
+  const m = String(model ?? "").trim();
+  return m || provider.models[0][0];
 }

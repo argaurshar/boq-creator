@@ -47,3 +47,6 @@ jobs:
       # the backend asserts (shared/provider-cases.json).
       - name: Provider contract (shared corpus)
         run: npm run check:providers
+
+      - name: Storage contract (key, provider, model, reply ceiling)
+        run: npm run check:storage

@@ -82,10 +82,22 @@ def test_anthropic_opts_into_browser_calls_and_kie_does_not_get_x_api_key():
     assert "x-api-key" not in k
 
 
-def test_model_for_keeps_the_picker_honest():
+def test_model_for_sends_what_was_chosen():
     assert model_for(PROVIDERS["kie"], "claude-opus-4-8") == "claude-opus-4-8"
-    # A model the provider does not serve falls back to its first one.
-    assert model_for(PROVIDERS["kie"], "gpt-9") == PROVIDERS["kie"]["models"][0][0]
+    # A gateway may serve ids our list has never heard of — asking for one is
+    # the user's call, and substituting ours would hide "not served here"
+    # behind an answer from a different model.
+    assert model_for(PROVIDERS["kie"], "claude-3-7-sonnet-20250219") == "claude-3-7-sonnet-20250219"
+    assert model_for(PROVIDERS["kie"], "  claude-opus-4-8  ") == "claude-opus-4-8"
+    # Only an empty choice takes the default.
+    for empty in ("", "   ", None):
+        assert model_for(PROVIDERS["kie"], empty) == PROVIDERS["kie"]["models"][0][0]
+
+
+def test_every_provider_publishes_a_model_catalogue_url():
+    for p in PROVIDERS.values():
+        assert p["models_url"] == p["base_url"] + "/v1/models"
+        assert p["models_url"] != p["url"]
 
 
 def test_every_provider_has_a_billing_page_distinct_from_its_key_page():
