@@ -678,10 +678,12 @@ function ApiKeyModal({
       // requests must not look like a frozen dialog.
       const r = await probeProvider(key, chosen, active, (st) => setLive((prev) => [...prev, st]));
       setProbe(r);
-      // Only a settled ladder is worth storing. A test that never got that far
-      // (rate limited, model refused, offline) knows nothing about the ceiling,
-      // and writing its 0 would throw away a working one found earlier.
-      if (r.model === chosen && r.lengthOk) setMaxTokensCap(active, r.cap);
+      // Only a settled ladder is worth storing, and it is stored against the
+      // model it was measured on — which is not always the one in use, since
+      // the test falls back to a model the host does serve. A test that never
+      // got that far (rate limited, model refused, offline) knows nothing
+      // about the ceiling, and writing its 0 would throw away a working one.
+      if (r.model && r.lengthOk) setMaxTokensCap(active, r.model, r.cap);
     } catch (e: any) {
       setProbe({
         steps: [], models: [], cap: 0, lengthOk: false, vision: false, model: "",
@@ -803,8 +805,6 @@ function ApiKeyModal({
                         onClick={() => {
                           onModel(id, active);
                           setPicked(id);
-                          // The ceiling was measured on this one, so it applies.
-                          if (id === probe.model && probe.lengthOk) setMaxTokensCap(active, probe.cap);
                         }}>
                         {id === probe.model ? `★ ${id}` : id}
                       </button>
