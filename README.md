@@ -103,6 +103,9 @@ catalogue (`GET /v1/models`), then sends a few one-word requests: one on the
 model you picked, a descending reply-length ladder (16k → 8k → 4k → 1k), and one
 carrying a tiny image. It reports which step failed, and fixes what it can:
 
+- if the host only honours one of the auth routes it documents, the test finds
+  which and every later call is sent that way (kie.ai documents two: a bearer
+  token, and `x-api-key` carrying the literal text `Bearer <key>`);
 - a model the host does serve is offered as a chip — click it to use it;
 - the reply-length ceiling it finds is remembered for that provider **and that
   model** — `max_tokens` limits belong to the model, so a ceiling found for one
@@ -112,6 +115,12 @@ carrying a tiny image. It reports which step failed, and fixes what it can:
 
 The probes cost a few tokens in total (each asks for one word, so a high
 `max_tokens` is only a ceiling, never a bill).
+
+A 5xx from a gateway (502/503/504, or Cloudflare's 520–530) says its own
+upstream was unreachable — nothing about the request. Those are retried with a
+short backoff rather than ending a multi-page run, they are never read as a
+reply-length limit, and if one persists the test says plainly that it is the
+host's to fix.
 
 Whatever model you choose is what gets sent. The two models in the picker are a
 convenience, not a catalogue: a gateway may serve ids we have never heard of,

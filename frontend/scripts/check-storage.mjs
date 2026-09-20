@@ -136,6 +136,27 @@ try {
   A.setApiKey(KIE);
   eq("a pre-upgrade ceiling is not inherited", A.credentials().maxTokensCap, 0);
 
+  // --------------------------------------------------------- the auth route
+  reset();
+  A.setApiKey(KIE);
+  eq("the documented default is assumed", A.getAuthVariant(A.getProvider()), "bearer");
+  A.setAuthVariant(A.getProvider(), "x-api-key-bearer");
+  eq("a discovered route is kept", A.getAuthVariant(A.getProvider()), "x-api-key-bearer");
+  eq("and travels with the credentials", A.credentials().auth, "x-api-key-bearer");
+  // A route one host documents is meaningless on the other.
+  A.setApiKey(ANT);
+  eq("the other provider keeps its own", A.getAuthVariant(A.getProvider()), "x-api-key");
+  A.setAuthVariant(A.getProvider(), "bearer");
+  eq("and refuses a route it does not document", A.getAuthVariant(A.getProvider()), "x-api-key");
+  // Discovered for one account, so forgotten with it.
+  A.setApiKey(KIE);
+  eq("a key change starts over", A.getAuthVariant(A.getProvider()), "bearer");
+  // Junk in storage must not decide how a key is sent.
+  reset();
+  localStorage.setItem("boq.aiAuthMode", "{not json");
+  A.setApiKey(KIE);
+  eq("garbage falls back to the documented default", A.credentials().auth, "bearer");
+
   // ------------------------------------------------------------- the key
   reset();
   A.setApiKey(`  export ANTHROPIC_API_KEY="Bearer ${KIE}"  `);
@@ -168,6 +189,8 @@ try {
     ["setApiKey", () => A.setApiKey(KIE)],
     ["setModel", () => A.setModel("claude-opus-4-8")],
     ["setMaxTokensCap", () => A.setMaxTokensCap(A.getProvider(), "claude-sonnet-4-6", 4096)],
+    ["getAuthVariant", () => A.getAuthVariant()],
+    ["setAuthVariant", () => A.setAuthVariant(A.getProvider(), "bearer")],
   ]) {
     try { fn(); } catch (e) { failures.push(`${name}() threw when storage is unavailable: ${e.message}`); }
   }

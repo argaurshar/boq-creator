@@ -171,14 +171,15 @@ try {
     };
     r = await C.probeProvider("sk-kie-abcdefgh12", "claude-opus-4-8", P.PROVIDERS.kie);
     eq("the stored model is tried first", wire[0], "claude-opus-4-8");
-    if (wire[1] !== "claude-sonnet-4-6")
-      failures.push(`a Claude id must be preferred over a media model: tried ${wire[1]}`);
+    const alts = wire.filter((m) => m !== "claude-opus-4-8");
+    if (alts[0] !== "claude-sonnet-4-6")
+      failures.push(`a Claude id must be preferred over a media model: tried ${alts[0]}`);
     if (/rejected the key/.test(r.verdict))
       failures.push(`an unserved model must not be reported as a bad key: ${r.verdict}`);
     if (!/does not serve/.test(r.verdict) || !/claude-sonnet-4-6/.test(r.verdict))
       failures.push(`verdict should name the model that works: ${r.verdict}`);
     eq("measurements are attributed to the model they were taken on", r.model, "claude-sonnet-4-6");
-    if (wire.slice(2).some((m) => m !== "claude-sonnet-4-6"))
+    if (alts.some((m) => m !== "claude-sonnet-4-6"))
       failures.push("length and image probes must run on the model that works");
   }
 
@@ -208,7 +209,8 @@ try {
   r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
   eq("a rate-limited ladder settles nothing", r.lengthOk, false);
   eq("and proposes no ceiling", r.cap, 0);
-  if (!/rate-limited/.test(r.verdict)) failures.push(`rate-limit verdict: ${r.verdict}`);
+  if (!/before the test could measure the reply length/.test(r.verdict))
+    failures.push(`rate-limit verdict: ${r.verdict}`);
   if (/caps replies/.test(r.verdict)) failures.push("a rate limit must not be reported as a cap");
 
   // A settled ladder is the only thing that may be stored, so say which it was.
@@ -218,6 +220,64 @@ try {
   };
   r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
   if (!r.lengthOk || r.cap !== 4096) failures.push(`a settled ladder must report itself: ${JSON.stringify({ lengthOk: r.lengthOk, cap: r.cap })}`);
+
+  // A key can be right and simply sent the wrong way. kie.ai documents two
+  // auth routes; a host that honours only one must be found, not written off.
+  {
+    const seen = [];
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).endsWith("/v1/models")) return err(404, "x");
+      const h = init.headers || {};
+      seen.push(h["x-api-key"] ? `x-api-key:${h["x-api-key"]}` : `bearer:${h["authorization"]}`);
+      // Only the documented ANTHROPIC_API_KEY route ("Bearer <key>" in
+      // x-api-key) is honoured here.
+      return h["x-api-key"] === "Bearer sk-kie-abcdefgh12" ? ok200 : err(530, "Internal error, please try again later");
+    };
+    r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+    eq("the documented default is tried first", seen[0], "bearer:Bearer sk-kie-abcdefgh12");
+    // A 530 is retried once before the route is blamed, so the second attempt
+    // is the same route again; the fallback comes after that.
+    const firstAlt = seen.findIndex((h) => h.startsWith("x-api-key:"));
+    if (firstAlt < 1) failures.push(`the other documented route was never tried: ${JSON.stringify(seen)}`);
+    eq("and it carries the documented value", seen[firstAlt], 'x-api-key:Bearer sk-kie-abcdefgh12');
+    eq("and that one is reported as the way in", r.auth, "x-api-key-bearer");
+    eq("the model then counts as working", r.model, "claude-sonnet-4-6");
+    if (!/only accepted the key sent as/.test(r.verdict))
+      failures.push(`the working auth route must be stated: ${r.verdict}`);
+    if (seen.slice(firstAlt).some((h) => !h.startsWith("x-api-key:Bearer")))
+      failures.push("every later probe must use the route that worked");
+    // And a real call must then go out that way too.
+    calls.length = 0;
+    const wire2 = [];
+    globalThis.fetch = async (url, init) => {
+      wire2.push(init.headers);
+      return { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
+    };
+    await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", "claude-sonnet-4-6", "", P.PROVIDERS.kie, 0, r.auth);
+    eq("a real call follows the discovered route", wire2[0]["x-api-key"], "Bearer sk-kie-abcdefgh12");
+    if ("authorization" in wire2[0]) failures.push("the unused route must not be sent as well");
+  }
+
+  // A 530 means the gateway could not reach its model. It is never a statement
+  // about the request, so it must not be read as one — and it is worth retrying.
+  {
+    let n = 0;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/v1/models")) return err(404, "x");
+      n += 1;
+      return n <= 2 ? err(530, "Internal error, please try again later") : { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
+    };
+    const got = await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", "claude-sonnet-4-6", "", P.PROVIDERS.kie);
+    if (!got) failures.push("a call must survive a gateway blip");
+    if (n < 3) failures.push(`a transient status must be retried: ${n} attempt(s)`);
+
+    globalThis.fetch = async (url) => (String(url).endsWith("/v1/models") ? err(404, "x") : err(530, "Internal error, please try again later"));
+    r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+    eq("a host that never answers measures nothing", r.model, "");
+    if (/rejected the key/.test(r.verdict))
+      failures.push(`530 is not a statement about the key: ${r.verdict}`);
+    if (!/theirs to fix/.test(r.verdict)) failures.push(`530 verdict: ${r.verdict}`);
+  }
 
   // A host that simply does not publish a catalogue is not a failing check —
   // a red cross above the word "Working" teaches the user to distrust the test.

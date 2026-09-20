@@ -39,6 +39,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "key_url": "https://console.anthropic.com/settings/keys",
         "billing_url": "https://console.anthropic.com/settings/billing",
         "auth": "x-api-key",
+        "auth_variants": ["x-api-key"],
         "blurb": "Your own Anthropic account — billed by Anthropic.",
         "models": MODELS,
     },
@@ -56,10 +57,12 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "article": "a",
         "key_url": "https://kie.ai/api-key",
         "billing_url": "https://kie.ai/billing",
-        # kie.ai accepts the key as a bearer token (their ANTHROPIC_AUTH_TOKEN
-        # route); the x-api-key route wants the literal text "Bearer <key>",
-        # so bearer is the unambiguous one to send.
+        # kie.ai documents both of its routes: ANTHROPIC_AUTH_TOKEN (a bearer
+        # token) and ANTHROPIC_API_KEY holding the literal text "Bearer <key>".
+        # Bearer is the unambiguous one to send first; the browser self-test
+        # falls back to the other if a host only honours that one.
         "auth": "bearer",
+        "auth_variants": ["bearer", "x-api-key-bearer"],
         "blurb": "Same Claude models through kie.ai credits — billed by kie.ai.",
         "models": MODELS,
     },
@@ -140,21 +143,30 @@ def provider_info(pid: str | None) -> dict[str, Any]:
     return PROVIDERS.get(pid or "", PROVIDERS[DEFAULT_PROVIDER])
 
 
-def auth_headers(provider: dict[str, Any], key: str) -> dict[str, str]:
+def auth_variant_for(provider: dict[str, Any], variant: Any = None) -> str:
+    """Keep a configured auth variant only if this provider documents it."""
+    v = str(variant or "")
+    return v if v in provider["auth_variants"] else provider["auth"]
+
+
+def auth_headers(provider: dict[str, Any], key: str, variant: Any = None) -> dict[str, str]:
     """Request headers for one provider — the only thing that differs per host.
 
     The SDK builds these itself; this function exists so the header contract is
     stated once and can be asserted in tests against the TypeScript client.
     """
     k = normalize_key(key)
+    v = auth_variant_for(provider, variant)
     headers = {
         "content-type": "application/json",
         "anthropic-version": ANTHROPIC_VERSION,
     }
-    if provider["auth"] == "bearer":
+    if v == "bearer":
         headers["authorization"] = f"Bearer {k}"
     else:
-        headers["x-api-key"] = k
+        # "x-api-key-bearer" is the same header carrying the word Bearer, which
+        # is what kie.ai's ANTHROPIC_API_KEY route documents.
+        headers["x-api-key"] = f"Bearer {k}" if v == "x-api-key-bearer" else k
         # Anthropic blocks browser calls unless the caller opts in explicitly.
         headers["anthropic-dangerous-direct-browser-access"] = "true"
     return headers

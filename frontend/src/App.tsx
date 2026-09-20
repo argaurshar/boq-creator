@@ -9,6 +9,7 @@ import {
   getModel,
   setModel,
   setMaxTokensCap,
+  setAuthVariant,
   Boq,
   BoqItem,
   Project,
@@ -684,9 +685,14 @@ function ApiKeyModal({
       // got that far (rate limited, model refused, offline) knows nothing
       // about the ceiling, and writing its 0 would throw away a working one.
       if (r.model && r.lengthOk) setMaxTokensCap(active, r.model, r.cap);
+      // A host that only answered one of its documented auth routes must be
+      // called that way from now on, or every later request repeats the
+      // failure this test just cleared up.
+      if (r.model) setAuthVariant(active, r.auth);
     } catch (e: any) {
       setProbe({
         steps: [], models: [], cap: 0, lengthOk: false, vision: false, model: "",
+        auth: active.auth,
         verdict: `The test could not run: ${String(e?.message || e)}`,
       });
     } finally {

@@ -13,6 +13,8 @@
 export type ProviderId = "anthropic" | "kie";
 /** What the user chose in the key dialog: a provider, or let the key decide. */
 export type ProviderPref = ProviderId | "auto";
+/** How a key is put on the wire. */
+export type AuthVariant = "x-api-key" | "bearer" | "x-api-key-bearer";
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -36,8 +38,17 @@ export interface ProviderInfo {
   keyUrl: string;
   /** Where to add credits — not the same page as the key. */
   billingUrl: string;
-  /** How the key is sent. */
-  auth: "x-api-key" | "bearer";
+  /** How the key is sent by default. */
+  auth: AuthVariant;
+  /**
+   * Every way this host documents sending the key, best first.
+   *
+   * kie.ai documents two: ANTHROPIC_AUTH_TOKEN (a bearer token) and
+   * ANTHROPIC_API_KEY set to the literal text "Bearer <key>" (an x-api-key
+   * whose value carries the word Bearer). Which one a gateway actually honours
+   * is not something we can know from here, so the self-test tries them.
+   */
+  authVariants: AuthVariant[];
   /** One line describing what this provider is. */
   blurb: string;
   /** Models offered, as [id, label]. */
@@ -69,6 +80,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     keyUrl: "https://console.anthropic.com/settings/keys",
     billingUrl: "https://console.anthropic.com/settings/billing",
     auth: "x-api-key",
+    authVariants: ["x-api-key"],
     blurb: "Your own Anthropic account — billed by Anthropic.",
     models: MODELS,
   },
@@ -86,10 +98,12 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     article: "a",
     keyUrl: "https://kie.ai/api-key",
     billingUrl: "https://kie.ai/billing",
-    // kie.ai accepts the key as a bearer token (their ANTHROPIC_AUTH_TOKEN
-    // route); the x-api-key route wants the literal text "Bearer <key>", so
-    // bearer is the unambiguous one to send.
+    // kie.ai documents both of its routes: ANTHROPIC_AUTH_TOKEN (a bearer
+    // token) and ANTHROPIC_API_KEY holding the literal text "Bearer <key>".
+    // Bearer is the unambiguous one to send first; the self-test falls back to
+    // the other if this host only honours that one.
     auth: "bearer",
+    authVariants: ["bearer", "x-api-key-bearer"],
     blurb: "Same Claude models through kie.ai credits — billed by kie.ai.",
     models: MODELS,
   },
@@ -169,20 +183,35 @@ export function providerInfo(id: string | null | undefined): ProviderInfo {
 }
 
 /** Request headers for one provider — the only thing that differs per host. */
-export function authHeaders(provider: ProviderInfo, key: string): Record<string, string> {
+export function authHeaders(
+  provider: ProviderInfo,
+  key: string,
+  variant?: AuthVariant
+): Record<string, string> {
   const k = normalizeKey(key);
+  const v = authVariantFor(provider, variant);
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "anthropic-version": ANTHROPIC_VERSION,
   };
-  if (provider.auth === "bearer") {
+  if (v === "bearer") {
     headers["authorization"] = `Bearer ${k}`;
   } else {
-    headers["x-api-key"] = k;
+    // "x-api-key-bearer" is the same header carrying the word Bearer, which is
+    // what kie.ai's ANTHROPIC_API_KEY route documents.
+    headers["x-api-key"] = v === "x-api-key-bearer" ? `Bearer ${k}` : k;
     // Anthropic blocks browser calls unless the caller opts in explicitly.
     headers["anthropic-dangerous-direct-browser-access"] = "true";
   }
   return headers;
+}
+
+/** Keep a stored auth variant only if this provider documents it. */
+export function authVariantFor(provider: ProviderInfo, variant?: string | null): AuthVariant {
+  const v = String(variant || "");
+  return (provider.authVariants as string[]).includes(v)
+    ? (v as AuthVariant)
+    : provider.auth;
 }
 
 /** Models this provider offers; used to keep the model picker honest. */
