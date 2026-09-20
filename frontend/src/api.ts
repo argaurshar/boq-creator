@@ -130,34 +130,39 @@ export function credentials(): {
 } {
   const key = getApiKey();
   const provider = resolveProvider(key, getProviderPref());
-  return {
-    key,
-    provider,
-    model: modelFor(provider, storedModel(provider)),
-    maxTokensCap: getMaxTokensCap(provider),
-  };
+  const model = modelFor(provider, storedModel(provider));
+  return { key, provider, model, maxTokensCap: getMaxTokensCap(provider, model) };
 }
 
-// What a host was found to accept, per provider: a gateway can cap the reply
-// length below what a page read asks for. Discovered by the 🔑 self-test and
-// kept so every later call asks for a length this host will actually serve.
+// What a host was found to accept, per provider *and model*: a gateway can cap
+// the reply length below what a page read asks for, and max_tokens limits are
+// a property of the model, not of the host — a gateway reselling several
+// Claude models can serve one at full length and cap another. The self-test
+// measures the ladder on exactly one model, so that is what the number
+// describes. Keyed by provider alone, a ceiling found for one model would
+// silently throttle every other model on that host, and clamping down does
+// not fail loudly: it returns a 200 carrying a truncated object, which
+// surfaces much later as "did not return valid JSON". A model nobody has
+// measured has no ceiling, and asks for the full length.
 const CAP_STORAGE = "boq.aiMaxTokens";
+const capKey = (provider: ProviderInfo, model: string) => `${provider.id}|${model}`;
 function caps(): Record<string, number> {
   try {
     const raw = JSON.parse(localStorage.getItem(CAP_STORAGE) || "{}");
     return raw && typeof raw === "object" ? raw : {};
   } catch { return {}; }
 }
-export function getMaxTokensCap(provider?: ProviderInfo): number {
-  const id = (provider || getProvider()).id;
-  const n = Number(caps()[id]);
+export function getMaxTokensCap(provider?: ProviderInfo, model?: string): number {
+  const p = provider || getProvider();
+  const n = Number(caps()[capKey(p, model || storedModel(p))]);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
-/** Record (cap > 0) or clear (cap <= 0) the ceiling found for one provider. */
-export function setMaxTokensCap(provider: ProviderInfo, cap: number): void {
+/** Record (cap > 0) or clear (cap <= 0) the ceiling found for one model. */
+export function setMaxTokensCap(provider: ProviderInfo, model: string, cap: number): void {
   const all = caps();
-  if (cap > 0) all[provider.id] = cap;
-  else delete all[provider.id];
+  const k = capKey(provider, model);
+  if (cap > 0) all[k] = cap;
+  else delete all[k];
   try { localStorage.setItem(CAP_STORAGE, JSON.stringify(all)); } catch { /* ignore */ }
 }
 

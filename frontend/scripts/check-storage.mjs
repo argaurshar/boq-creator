@@ -102,33 +102,50 @@ try {
   reset();
   A.setApiKey(KIE);
   const kie = A.getProvider();
-  eq("no ceiling is assumed", A.getMaxTokensCap(kie), 0);
-  A.setMaxTokensCap(kie, 4096);
-  eq("a measured ceiling is kept", A.getMaxTokensCap(kie), 4096);
+  const SONNET = "claude-sonnet-4-6";
+  const OPUS = "claude-opus-4-8";
+  eq("no ceiling is assumed", A.getMaxTokensCap(kie, SONNET), 0);
+  A.setMaxTokensCap(kie, SONNET, 4096);
+  eq("a measured ceiling is kept", A.getMaxTokensCap(kie, SONNET), 4096);
   eq("and travels with the key and model", A.credentials().maxTokensCap, 4096);
+  // max_tokens limits belong to the model, not the host: a gateway can serve
+  // one Claude model at full length and cap another. A ceiling measured on one
+  // must never throttle the other — that clamps a good request into a
+  // truncated reply, which fails far away as "did not return valid JSON".
+  eq("another model on the same host is unmeasured", A.getMaxTokensCap(kie, OPUS), 0);
+  A.setModel(OPUS);
+  eq("so switching model asks for the full length", A.credentials().maxTokensCap, 0);
+  A.setModel(SONNET);
+  eq("and switching back restores its own ceiling", A.credentials().maxTokensCap, 4096);
   // It was measured on one account. Another key may be another plan.
   A.setApiKey(ANT);
-  eq("a different key starts from no ceiling", A.getMaxTokensCap(A.getProvider()), 0);
+  eq("a different key starts from no ceiling", A.getMaxTokensCap(A.getProvider(), SONNET), 0);
   A.setApiKey(KIE);
-  eq("and the old one is not resurrected", A.getMaxTokensCap(A.getProvider()), 0);
-  A.setMaxTokensCap(A.getProvider(), 8192);
-  A.setMaxTokensCap(A.getProvider(), 0);
-  eq("clearing a ceiling clears it", A.getMaxTokensCap(A.getProvider()), 0);
+  eq("and the old one is not resurrected", A.getMaxTokensCap(A.getProvider(), SONNET), 0);
+  A.setMaxTokensCap(A.getProvider(), SONNET, 8192);
+  A.setMaxTokensCap(A.getProvider(), SONNET, 0);
+  eq("clearing a ceiling clears it", A.getMaxTokensCap(A.getProvider(), SONNET), 0);
   // Re-saving the same key is not a change and must not throw the ceiling away.
-  A.setMaxTokensCap(A.getProvider(), 4096);
+  A.setMaxTokensCap(A.getProvider(), SONNET, 4096);
   A.setApiKey(KIE);
-  eq("re-saving the same key keeps it", A.getMaxTokensCap(A.getProvider()), 4096);
+  eq("re-saving the same key keeps it", A.getMaxTokensCap(A.getProvider(), SONNET), 4096);
+  // A ceiling written in the pre-model format is simply unknown, which asks
+  // for the full length — never another model's number.
+  reset();
+  localStorage.setItem("boq.aiMaxTokens", JSON.stringify({ kie: 1024 }));
+  A.setApiKey(KIE);
+  eq("a pre-upgrade ceiling is not inherited", A.credentials().maxTokensCap, 0);
 
   // ------------------------------------------------------------- the key
   reset();
   A.setApiKey(`  export ANTHROPIC_API_KEY="Bearer ${KIE}"  `);
   eq("a pasted export line yields the key", A.getApiKey(), KIE);
   A.setProviderPref("anthropic");
-  A.setMaxTokensCap(A.getProvider(), 4096);
+  A.setMaxTokensCap(A.getProvider(), A.getModel(), 4096);
   A.setApiKey("");
   eq("removing the key removes it", A.getApiKey(), "");
   eq("and the provider pin with it", A.getProviderPref(), "auto");
-  eq("and the ceiling with it", A.getMaxTokensCap(A.getProvider()), 0);
+  eq("and the ceiling with it", A.getMaxTokensCap(A.getProvider(), "claude-sonnet-4-6"), 0);
 
   // A key and the provider it goes to are read as one set, never separately.
   reset();
@@ -150,7 +167,7 @@ try {
     ["credentials", () => A.credentials().provider.id],
     ["setApiKey", () => A.setApiKey(KIE)],
     ["setModel", () => A.setModel("claude-opus-4-8")],
-    ["setMaxTokensCap", () => A.setMaxTokensCap(A.getProvider(), 4096)],
+    ["setMaxTokensCap", () => A.setMaxTokensCap(A.getProvider(), "claude-sonnet-4-6", 4096)],
   ]) {
     try { fn(); } catch (e) { failures.push(`${name}() threw when storage is unavailable: ${e.message}`); }
   }

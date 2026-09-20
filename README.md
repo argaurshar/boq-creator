@@ -104,8 +104,9 @@ model you picked, a descending reply-length ladder (16k → 8k → 4k → 1k), a
 carrying a tiny image. It reports which step failed, and fixes what it can:
 
 - a model the host does serve is offered as a chip — click it to use it;
-- the reply-length ceiling it finds is remembered per provider, and every later
-  call asks for no more than that;
+- the reply-length ceiling it finds is remembered for that provider **and that
+  model** — `max_tokens` limits belong to the model, so a ceiling found for one
+  never throttles another — and every later call asks for no more than that;
 - if the host will not take images, it says so — that host cannot read drawings,
   though chat and manual entry still work.
 
@@ -118,7 +119,8 @@ and silently substituting one of ours would hide "not served here" behind an
 answer from a different model. The choice is remembered **per provider**, so a
 gateway-only id never follows you to the other host, and a measured reply
 ceiling is forgotten as soon as the key changes — another key can be another
-plan.
+plan. A model nobody has measured simply has no ceiling and asks for the full
+length.
 
 Heavy drawings are handled before they are sent: a page that encodes larger
 than the provider will accept is re-rendered smaller (down to a legibility
