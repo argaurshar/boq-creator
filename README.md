@@ -103,9 +103,11 @@ catalogue (`GET /v1/models`), then sends a few one-word requests: one on the
 model you picked, a descending reply-length ladder (16k → 8k → 4k → 1k), and one
 carrying a tiny image. It reports which step failed, and fixes what it can:
 
-- if the host only honours one of the auth routes it documents, the test finds
-  which and every later call is sent that way (kie.ai documents two: a bearer
-  token, and `x-api-key` carrying the literal text `Bearer <key>`);
+- if the host only answers on one of the routes it documents — a *route* being
+  a path plus an auth header — the test finds which and every later call is
+  made that way. kie.ai has two of each: `…/claude/v1/messages` (what an
+  Anthropic client posts to) and `…/claude` on its own, times a bearer token
+  and `x-api-key` carrying the literal text `Bearer <key>`;
 - a model the host does serve is offered as a chip — click it to use it;
 - the reply-length ceiling it finds is remembered for that provider **and that
   model** — `max_tokens` limits belong to the model, so a ceiling found for one
@@ -115,6 +117,12 @@ carrying a tiny image. It reports which step failed, and fixes what it can:
 
 The probes cost a few tokens in total (each asks for one word, so a high
 `max_tokens` is only a ceiling, never a bill).
+
+One kie.ai deployment routes on the path and glues whatever follows its base
+onto the model name: a request to `…/claude/v1/messages` asking for
+`claude-sonnet-5` is recorded on their side as `claude-sonnet-5-v1messages`
+and fails as an unknown model, with a generic `api_error` and no credit
+charged. That is why the path is one of the things the test varies.
 
 A 5xx from a gateway (502/503/504, or Cloudflare's 520–530) says its own
 upstream was unreachable — nothing about the request. Those are retried with a

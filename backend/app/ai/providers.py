@@ -21,8 +21,8 @@ KIE_BASE = "https://api.kie.ai/claude"
 # Both providers serve the same models, so switching provider never silently
 # changes which model reads your drawings.
 MODELS: list[tuple[str, str]] = [
-    ("claude-sonnet-4-6", "Sonnet (fast)"),
-    ("claude-opus-4-8", "Opus (most thorough)"),
+    ("claude-sonnet-5", "Sonnet 5 (fast)"),
+    ("claude-opus-5", "Opus 5 (most thorough)"),
 ]
 
 PROVIDERS: dict[str, dict[str, Any]] = {
@@ -32,6 +32,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "short": "Anthropic",
         "base_url": ANTHROPIC_BASE,
         "url": f"{ANTHROPIC_BASE}/v1/messages",
+        "urls": [f"{ANTHROPIC_BASE}/v1/messages"],
         "models_url": f"{ANTHROPIC_BASE}/v1/models",
         "key_prefixes": ["sk-ant-"],
         "key_hint": "sk-ant-",
@@ -51,6 +52,11 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         # the client appends /v1/messages itself.
         "base_url": KIE_BASE,
         "url": f"{KIE_BASE}/v1/messages",
+        # The documented Anthropic-style path first; then the base on its own.
+        # One kie.ai deployment glues whatever follows its base onto the model
+        # name, so .../claude/v1/messages asking for "claude-sonnet-5" is
+        # recorded as "claude-sonnet-5-v1messages" and fails as unknown.
+        "urls": [f"{KIE_BASE}/v1/messages", KIE_BASE],
         "models_url": f"{KIE_BASE}/v1/models",
         "key_prefixes": ["sk-kie-"],
         "key_hint": "sk-kie-",
@@ -141,6 +147,25 @@ def override_ignored(key: Any, pref: str | None) -> bool:
 
 def provider_info(pid: str | None) -> dict[str, Any]:
     return PROVIDERS.get(pid or "", PROVIDERS[DEFAULT_PROVIDER])
+
+
+def routes_for(provider: dict[str, Any]) -> list[dict[str, str]]:
+    """Every route to try, best first: endpoint varies fastest."""
+    return [
+        {"url": url, "auth": auth}
+        for auth in provider["auth_variants"]
+        for url in provider["urls"]
+    ]
+
+
+def route_for(provider: dict[str, Any], route: Any = None) -> dict[str, str]:
+    """Keep a configured route only if this provider documents it."""
+    r = route or {}
+    url = r.get("url") if isinstance(r, dict) else None
+    return {
+        "url": url if url in provider["urls"] else provider["url"],
+        "auth": auth_variant_for(provider, r.get("auth") if isinstance(r, dict) else None),
+    }
 
 
 def auth_variant_for(provider: dict[str, Any], variant: Any = None) -> str:

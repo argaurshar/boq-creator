@@ -64,17 +64,17 @@ try {
   for (const c of cases.headers) {
     calls.length = 0;
     const provider = P.PROVIDERS[c.provider];
-    await C.claudeParseNl("add a column", { discipline: "structure" }, c.key, "claude-sonnet-4-6", "", provider);
+    await C.claudeParseNl("add a column", { discipline: "structure" }, c.key, cases.models[0][0], "", provider);
     eq(`claudeParseNl -> ${c.provider} url`, calls[0]?.url, cases.endpoints[c.provider]);
     eq(`claudeParseNl -> ${c.provider} headers`, calls[0]?.headers, c.headers);
-    eq(`claudeParseNl -> ${c.provider} model`, calls[0]?.body?.model, "claude-sonnet-4-6");
+    eq(`claudeParseNl -> ${c.provider} model`, calls[0]?.body?.model, cases.models[0][0]);
   }
   // With no provider argument the key alone must still pick the right host.
   calls.length = 0;
-  await C.claudeParseNl("add a column", {}, "sk-kie-abcdefgh12", "claude-sonnet-4-6");
+  await C.claudeParseNl("add a column", {}, "sk-kie-abcdefgh12", cases.models[0][0]);
   eq("key alone routes to kie", calls[0]?.url, cases.endpoints.kie);
   calls.length = 0;
-  await C.claudeParseNl("add a column", {}, "sk-ant-abcdefgh12", "claude-sonnet-4-6");
+  await C.claudeParseNl("add a column", {}, "sk-ant-abcdefgh12", cases.models[0][0]);
   eq("key alone routes to anthropic", calls[0]?.url, cases.endpoints.anthropic);
 
   // A provider must never see the other provider's key.
@@ -83,7 +83,7 @@ try {
     { key: "sk-ant-abcdefgh12", wrong: "api.kie.ai" },
   ]) {
     calls.length = 0;
-    await C.claudeParseNl("x", {}, key, "claude-sonnet-4-6");
+    await C.claudeParseNl("x", {}, key, cases.models[0][0]);
     const sent = JSON.stringify(calls[0]);
     if (sent.includes(wrong)) failures.push(`${key} reached ${wrong}`);
   }
@@ -91,7 +91,7 @@ try {
   // Whatever model was chosen is what goes on the wire — our per-provider list
   // is a picker convenience, not a catalogue we can vouch for.
   eq("modelFor keeps an unknown id", P.modelFor(P.PROVIDERS.kie, "claude-3-7-sonnet"), "claude-3-7-sonnet");
-  eq("modelFor trims", P.modelFor(P.PROVIDERS.kie, "  claude-opus-4-8 "), "claude-opus-4-8");
+  eq("modelFor trims", P.modelFor(P.PROVIDERS.kie, `  ${cases.models[1][0]} `), cases.models[1][0]);
   eq("modelFor defaults only when empty", P.modelFor(P.PROVIDERS.kie, "   "), cases.models[0][0]);
   for (const id of Object.keys(cases.endpoints)) {
     eq(`${id}.modelsUrl`, P.PROVIDERS[id].modelsUrl, `${P.PROVIDERS[id].baseUrl}/v1/models`);
@@ -111,7 +111,7 @@ try {
     const body = JSON.parse(init.body);
     return body.model === "claude-3-7-sonnet" ? ok200 : err(500, "Internal error, please try again later");
   };
-  let r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  let r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   eq("self-test reads the catalogue", r.models, ["claude-3-7-sonnet"]);
   if (!/does not serve/.test(r.verdict) || !/claude-3-7-sonnet/.test(r.verdict))
     failures.push(`self-test must name the served model: ${r.verdict}`);
@@ -122,7 +122,7 @@ try {
     const body = JSON.parse(init.body);
     return body.max_tokens > 4096 ? err(500, "Internal error") : ok200;
   };
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   eq("self-test finds the reply-length ceiling", r.cap, 4096);
   if (!r.vision) failures.push("a host that takes images must be reported as taking them");
   if (!/caps replies at 4k/.test(r.verdict)) failures.push(`cap verdict: ${r.verdict}`);
@@ -134,14 +134,14 @@ try {
     const hasImage = JSON.stringify(body.messages).includes('"image"');
     return hasImage ? err(400, "image blocks are not supported") : ok200;
   };
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   eq("self-test: no cap needed", r.cap, 0);
   if (r.vision) failures.push("a host that refuses images must not be reported as reading drawings");
   if (!/cannot read drawings/.test(r.verdict)) failures.push(`vision verdict: ${r.verdict}`);
 
   // (d) everything works.
   globalThis.fetch = async (url) => (String(url).endsWith("/v1/models") ? err(404, "x") : ok200);
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   if (!/Working/.test(r.verdict) || r.cap !== 0 || !r.vision)
     failures.push(`healthy host misreported: ${r.verdict}`);
 
@@ -151,7 +151,7 @@ try {
     if (String(url).endsWith("/v1/models")) return err(404, "x");
     return JSON.parse(init.body).max_tokens > 64 ? err(500, "Internal error") : ok200;
   };
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   eq("no usable reply length means no cap is stored", r.cap, 0);
   if (/Working/.test(r.verdict) || !/refused every reply length/.test(r.verdict))
     failures.push(`unusable host misreported: ${r.verdict}`);
@@ -163,23 +163,23 @@ try {
     const wire = [];
     globalThis.fetch = async (url, init = {}) => {
       if (String(url).endsWith("/v1/models"))
-        return { ok: true, status: 200, json: async () => ({ data: [{ id: "veo3-fast" }, { id: "claude-sonnet-4-6" }] }), text: async () => "" };
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: "veo3-fast" }, { id: cases.models[0][0] }] }), text: async () => "" };
       const body = JSON.parse(init.body);
       wire.push(body.model);
       // Only the real Claude model answers; the media model 400s like one would.
-      return body.model === "claude-sonnet-4-6" ? ok200 : err(400, "this model does not support messages");
+      return body.model === cases.models[0][0] ? ok200 : err(400, "this model does not support messages");
     };
-    r = await C.probeProvider("sk-kie-abcdefgh12", "claude-opus-4-8", P.PROVIDERS.kie);
-    eq("the stored model is tried first", wire[0], "claude-opus-4-8");
-    const alts = wire.filter((m) => m !== "claude-opus-4-8");
-    if (alts[0] !== "claude-sonnet-4-6")
+    r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[1][0], P.PROVIDERS.kie);
+    eq("the stored model is tried first", wire[0], cases.models[1][0]);
+    const alts = wire.filter((m) => m !== cases.models[1][0]);
+    if (alts[0] !== cases.models[0][0])
       failures.push(`a Claude id must be preferred over a media model: tried ${alts[0]}`);
     if (/rejected the key/.test(r.verdict))
       failures.push(`an unserved model must not be reported as a bad key: ${r.verdict}`);
-    if (!/does not serve/.test(r.verdict) || !/claude-sonnet-4-6/.test(r.verdict))
+    if (!/does not serve/.test(r.verdict) || !r.verdict.includes(cases.models[0][0]))
       failures.push(`verdict should name the model that works: ${r.verdict}`);
-    eq("measurements are attributed to the model they were taken on", r.model, "claude-sonnet-4-6");
-    if (alts.some((m) => m !== "claude-sonnet-4-6"))
+    eq("measurements are attributed to the model they were taken on", r.model, cases.models[0][0]);
+    if (alts.some((m) => m !== cases.models[0][0]))
       failures.push("length and image probes must run on the model that works");
   }
 
@@ -193,9 +193,9 @@ try {
       wire.push(JSON.parse(init.body).model);
       return ok200;
     };
-    r = await C.probeProvider("sk-kie-abcdefgh12", "claude-opus-4-8", P.PROVIDERS.kie);
-    eq("a working stored model is the one measured", r.model, "claude-opus-4-8");
-    if (wire.some((m) => m !== "claude-opus-4-8"))
+    r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[1][0], P.PROVIDERS.kie);
+    eq("a working stored model is the one measured", r.model, cases.models[1][0]);
+    if (wire.some((m) => m !== cases.models[1][0]))
       failures.push(`every probe should use the stored model: ${JSON.stringify(wire)}`);
     if (!/Working/.test(r.verdict)) failures.push(`healthy stored model: ${r.verdict}`);
   }
@@ -206,7 +206,7 @@ try {
     if (String(url).endsWith("/v1/models")) return err(404, "x");
     return JSON.parse(init.body).max_tokens > 64 ? err(429, "rate limit exceeded") : ok200;
   };
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   eq("a rate-limited ladder settles nothing", r.lengthOk, false);
   eq("and proposes no ceiling", r.cap, 0);
   if (!/before the test could measure the reply length/.test(r.verdict))
@@ -218,7 +218,7 @@ try {
     if (String(url).endsWith("/v1/models")) return err(404, "x");
     return JSON.parse(init.body).max_tokens > 4096 ? err(500, "Internal error") : ok200;
   };
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   if (!r.lengthOk || r.cap !== 4096) failures.push(`a settled ladder must report itself: ${JSON.stringify({ lengthOk: r.lengthOk, cap: r.cap })}`);
 
   // A key can be right and simply sent the wrong way. kie.ai documents two
@@ -233,17 +233,17 @@ try {
       // x-api-key) is honoured here.
       return h["x-api-key"] === "Bearer sk-kie-abcdefgh12" ? ok200 : err(530, "Internal error, please try again later");
     };
-    r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+    r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
     eq("the documented default is tried first", seen[0], "bearer:Bearer sk-kie-abcdefgh12");
     // A 530 is retried once before the route is blamed, so the second attempt
     // is the same route again; the fallback comes after that.
     const firstAlt = seen.findIndex((h) => h.startsWith("x-api-key:"));
     if (firstAlt < 1) failures.push(`the other documented route was never tried: ${JSON.stringify(seen)}`);
     eq("and it carries the documented value", seen[firstAlt], 'x-api-key:Bearer sk-kie-abcdefgh12');
-    eq("and that one is reported as the way in", r.auth, "x-api-key-bearer");
-    eq("the model then counts as working", r.model, "claude-sonnet-4-6");
-    if (!/only accepted the key sent as/.test(r.verdict))
-      failures.push(`the working auth route must be stated: ${r.verdict}`);
+    eq("and that one is reported as the way in", r.route.auth, "x-api-key-bearer");
+    eq("the model then counts as working", r.model, cases.models[0][0]);
+    if (!/only answered/.test(r.verdict))
+      failures.push(`the working route must be stated: ${r.verdict}`);
     if (seen.slice(firstAlt).some((h) => !h.startsWith("x-api-key:Bearer")))
       failures.push("every later probe must use the route that worked");
     // And a real call must then go out that way too.
@@ -253,10 +253,54 @@ try {
       wire2.push(init.headers);
       return { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
     };
-    await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", "claude-sonnet-4-6", "", P.PROVIDERS.kie, 0, r.auth);
+    await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", cases.models[0][0], "", P.PROVIDERS.kie, 0, r.route);
     eq("a real call follows the discovered route", wire2[0]["x-api-key"], "Bearer sk-kie-abcdefgh12");
     if ("authorization" in wire2[0]) failures.push("the unused route must not be sent as well");
   }
+
+  // The failure the kie.ai dashboard actually showed: the gateway glues
+  // whatever follows its base onto the model name, so a request to
+  // …/claude/v1/messages asking for "claude-sonnet-5" is recorded as
+  // "claude-sonnet-5-v1messages" and fails as an unknown model. The path is
+  // the variable, and the self-test has to be able to find that.
+  {
+    const hits = [];
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).endsWith("/v1/models")) return err(404, "x");
+      const u = String(url);
+      const body = JSON.parse(init.body);
+      // Their router: model = body.model + the path after the base.
+      const suffix = u.slice(P.PROVIDERS.kie.baseUrl.length).replace(/\//g, "");
+      const asked = suffix ? `${body.model}-${suffix}` : body.model;
+      hits.push({ url: u, asked });
+      return asked === cases.models[0][0]
+        ? ok200
+        : err(500, "Internal error, please try again later");
+    };
+    r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
+    eq("the documented path is tried first", hits[0].url, cases.endpoints.kie);
+    eq("and the bare base is tried too", r.route.url, P.PROVIDERS.kie.baseUrl);
+    eq("the model then counts as working", r.model, cases.models[0][0]);
+    if (!/only answered/.test(r.verdict)) failures.push(`the working path must be stated: ${r.verdict}`);
+    // Everything after discovery goes to the path that answered.
+    if (hits.filter((h) => h.url === P.PROVIDERS.kie.baseUrl).length < 3)
+      failures.push("later probes must use the path that answered");
+    // And a real call must follow it.
+    const urls = [];
+    globalThis.fetch = async (url, init) => {
+      urls.push(String(url));
+      return { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
+    };
+    await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", cases.models[0][0], "", P.PROVIDERS.kie, 0, r.route);
+    eq("a real call follows the discovered path", urls[0], P.PROVIDERS.kie.baseUrl);
+  }
+
+  // A route a provider does not document is never used, however it got stored.
+  eq("an unknown path falls back", P.routeFor(P.PROVIDERS.kie, { url: "https://evil.example/v1/messages" }).url, cases.endpoints.kie);
+  eq("an unknown auth falls back", P.routeFor(P.PROVIDERS.kie, { auth: "basic" }).auth, "bearer");
+  eq("Anthropic has exactly one route", P.routesFor(P.PROVIDERS.anthropic).length, 1);
+  eq("and kie.ai has one per path per header", P.routesFor(P.PROVIDERS.kie).length, 4);
+  eq("the documented one first", P.routesFor(P.PROVIDERS.kie)[0], { url: cases.endpoints.kie, auth: "bearer" });
 
   // A 530 means the gateway could not reach its model. It is never a statement
   // about the request, so it must not be read as one — and it is worth retrying.
@@ -267,12 +311,12 @@ try {
       n += 1;
       return n <= 2 ? err(530, "Internal error, please try again later") : { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
     };
-    const got = await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", "claude-sonnet-4-6", "", P.PROVIDERS.kie);
+    const got = await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", cases.models[0][0], "", P.PROVIDERS.kie);
     if (!got) failures.push("a call must survive a gateway blip");
     if (n < 3) failures.push(`a transient status must be retried: ${n} attempt(s)`);
 
     globalThis.fetch = async (url) => (String(url).endsWith("/v1/models") ? err(404, "x") : err(530, "Internal error, please try again later"));
-    r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+    r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
     eq("a host that never answers measures nothing", r.model, "");
     if (/rejected the key/.test(r.verdict))
       failures.push(`530 is not a statement about the key: ${r.verdict}`);
@@ -282,7 +326,7 @@ try {
   // A host that simply does not publish a catalogue is not a failing check —
   // a red cross above the word "Working" teaches the user to distrust the test.
   globalThis.fetch = async (url) => (String(url).endsWith("/v1/models") ? err(404, "x") : ok200);
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   const cat = r.steps.find((st) => st.id === "models");
   if (!cat || !cat.ok || !cat.info) failures.push(`a missing catalogue must read as informational: ${JSON.stringify(cat)}`);
   if (r.steps.some((st) => st.id !== "models" && st.info))
@@ -290,7 +334,7 @@ try {
 
   // (e) a bad key is still a bad key.
   globalThis.fetch = async (url) => (String(url).endsWith("/v1/models") ? err(401, "x") : err(401, "invalid key"));
-  r = await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6", P.PROVIDERS.kie);
+  r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
   if (!/rejected the key itself/.test(r.verdict)) failures.push(`401 verdict: ${r.verdict}`);
 
   // The self-test must never send a key to a host it does not belong to.
@@ -299,7 +343,7 @@ try {
     seen.push({ url: String(url), headers: init.headers || {} });
     return String(url).endsWith("/v1/models") ? err(404, "x") : ok200;
   };
-  await C.probeProvider("sk-kie-abcdefgh12", "claude-sonnet-4-6");
+  await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0]);
   if (seen.some((c) => c.url.includes("api.anthropic.com")))
     failures.push("the self-test sent a kie key to Anthropic");
   if (seen.some((c) => (c.headers["x-api-key"] || "").length))
@@ -313,7 +357,7 @@ try {
       wire.push(JSON.parse(init.body).max_tokens);
       return { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
     };
-    const ask = (cap) => C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", "claude-sonnet-4-6", "", P.PROVIDERS.kie, cap);
+    const ask = (cap) => C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", cases.models[0][0], "", P.PROVIDERS.kie, cap);
     await ask(0);
     eq("no ceiling: the full ask goes out", wire[0], 8000);
     await ask(4096);
@@ -331,7 +375,7 @@ try {
     text: async () => '{"type":"authentication_error","message":"invalid x-api-key"}',
   });
   const rejected = async (key, provider) => {
-    try { await C.claudeParseNl("x", {}, key, "claude-sonnet-4-6", "", provider); return ""; }
+    try { await C.claudeParseNl("x", {}, key, cases.models[0][0], "", provider); return ""; }
     catch (e) { return String(e.message); }
   };
   let m401 = await rejected("sk-kie-abcdefgh12");
@@ -346,7 +390,7 @@ try {
   // A failed fetch must be explained, not surfaced as "Failed to fetch".
   globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
   let msg = "";
-  try { await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", "claude-sonnet-4-6"); }
+  try { await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", cases.models[0][0]); }
   catch (e) { msg = String(e.message); }
   if (!/Could not reach Kie\.ai/.test(msg)) failures.push(`network error not explained: ${msg}`);
   if (/^Failed to fetch$/.test(msg)) failures.push("raw fetch error surfaced to the user");

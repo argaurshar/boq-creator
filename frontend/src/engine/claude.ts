@@ -6,11 +6,11 @@
 import { extractPrompt, nlPrompt, reviewPrompt } from "./prompts";
 import { DEFAULT_DISCIPLINE } from "./disciplines";
 import {
-  AuthVariant, PROVIDER_LIST, ProviderInfo, authHeaders, authVariantFor,
-  detectProvider, resolveProvider,
+  AuthVariant, PROVIDER_LIST, ProviderInfo, Route, authHeaders, detectProvider,
+  resolveProvider, routeFor, routesFor,
 } from "./providers";
 
-export const DEFAULT_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_MODEL = "claude-sonnet-5";
 /** Hard ceiling for one provider call. */
 const CALL_TIMEOUT_MS = 300_000;
 
@@ -120,14 +120,15 @@ async function post(
   apiKey: string,
   body: Record<string, any>,
   timeoutMs = CALL_TIMEOUT_MS,
-  auth?: AuthVariant
+  route?: Route
 ): Promise<{ res: Response | null; error: any }> {
+  const r = routeFor(p, route);
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   try {
-    const res = await fetch(p.url, {
+    const res = await fetch(r.url, {
       method: "POST",
-      headers: authHeaders(p, apiKey, auth),
+      headers: authHeaders(p, apiKey, r.auth),
       signal: abort.signal,
       body: JSON.stringify(body),
     });
@@ -147,7 +148,7 @@ async function jsonCall(
   maxTokens = 16000,
   provider?: ProviderInfo,
   maxTokensCap = 0,
-  auth?: AuthVariant
+  route?: Route
 ): Promise<any> {
   // No provider passed (or an older call site): let the key decide.
   const p = provider || resolveProvider(apiKey);
@@ -168,12 +169,12 @@ async function jsonCall(
       system: sys,
       messages: [{ role: "user", content }],
     };
-    let { res, error } = await post(p, apiKey, body, CALL_TIMEOUT_MS, auth);
+    let { res, error } = await post(p, apiKey, body, CALL_TIMEOUT_MS, route);
     // A gateway that cannot reach its own upstream says so with a 5xx and asks
     // to be tried again. One page of a long run must not end the run over it.
     for (let i = 0; res && !res.ok && transient(res.status) && i < RETRY_BACKOFF_MS.length; i++) {
       await wait(RETRY_BACKOFF_MS[i]);
-      ({ res, error } = await post(p, apiKey, body, CALL_TIMEOUT_MS, auth));
+      ({ res, error } = await post(p, apiKey, body, CALL_TIMEOUT_MS, route));
     }
     if (!res) {
       if (error?.name === "AbortError") {
@@ -213,7 +214,7 @@ export async function claudeParseNl(
   extraShapes = "",
   provider?: ProviderInfo,
   maxTokensCap = 0,
-  auth?: AuthVariant
+  route?: Route
 ): Promise<any> {
   const content: Content = [{
     type: "text",
@@ -222,7 +223,7 @@ export async function claudeParseNl(
   const discipline = String(context?.discipline || DEFAULT_DISCIPLINE);
   return jsonCall(
     nlPrompt(discipline, extraShapes), content, apiKey, model, 8000, provider,
-    maxTokensCap, auth);
+    maxTokensCap, route);
 }
 
 function dedupeMembers(lists: any[][]): any[] {
@@ -253,8 +254,8 @@ export async function claudeExtract(args: {
   provider?: ProviderInfo;
   /** Reply-length ceiling this host was found to accept; 0 = no ceiling. */
   maxTokensCap?: number;
-  /** How to send the key, when the self-test found the default is not it. */
-  auth?: AuthVariant;
+  /** Where to post and how to send the key, when the default is not it. */
+  route?: Route;
 }): Promise<any> {
   const model = args.model || DEFAULT_MODEL;
   const EXTRACT_PROMPT = extractPrompt(args.discipline || DEFAULT_DISCIPLINE, args.extraShapes || "");
@@ -274,7 +275,7 @@ export async function claudeExtract(args: {
   });
 
   // Pass 1 — extract everything.
-  const first = await jsonCall(EXTRACT_PROMPT, base, args.apiKey, model, 16000, args.provider, args.maxTokensCap, args.auth);
+  const first = await jsonCall(EXTRACT_PROMPT, base, args.apiKey, model, 16000, args.provider, args.maxTokensCap, args.route);
 
   // Pass 2 — completeness sweep: find anything missed. Re-checking each schedule
   // row and grid line against what's already captured catches under-extraction.
@@ -297,7 +298,7 @@ export async function claudeExtract(args: {
   ];
   let second: any = { members: [], unresolved: [] };
   try {
-    second = await jsonCall(EXTRACT_PROMPT, sweep, args.apiKey, model, 16000, args.provider, args.maxTokensCap, args.auth);
+    second = await jsonCall(EXTRACT_PROMPT, sweep, args.apiKey, model, 16000, args.provider, args.maxTokensCap, args.route);
   } catch {
     /* sweep is best-effort; keep pass-1 results if it fails */
   }
@@ -318,8 +319,8 @@ export async function claudeReview(args: {
   provider?: ProviderInfo;
   /** Reply-length ceiling this host was found to accept; 0 = no ceiling. */
   maxTokensCap?: number;
-  /** How to send the key, when the self-test found the default is not it. */
-  auth?: AuthVariant;
+  /** Where to post and how to send the key, when the default is not it. */
+  route?: Route;
 }): Promise<any[]> {
   if (!args.page_image_b64 || !(args.members || []).length) return [];
   const model = args.model || DEFAULT_MODEL;
@@ -335,7 +336,7 @@ export async function claudeReview(args: {
     },
   ];
   try {
-    const res = await jsonCall(reviewPrompt(args.extraShapes || ""), content, args.apiKey, model, 12000, args.provider, args.maxTokensCap, args.auth);
+    const res = await jsonCall(reviewPrompt(args.extraShapes || ""), content, args.apiKey, model, 12000, args.provider, args.maxTokensCap, args.route);
     const reviews = Array.isArray(res?.reviews) ? res.reviews : [];
     return reviews.filter((r: any) => r && r.op && r.op !== "ok");
   } catch {
@@ -380,8 +381,8 @@ export interface ProbeResult {
   vision: boolean;
   /** The model every measurement above was taken on ("" when none worked). */
   model: string;
-  /** How the key had to be sent for this host to answer. */
-  auth: AuthVariant;
+  /** Where the host had to be called, and how, for it to answer. */
+  route: Route;
   /** One sentence for the user, and what to do about it. */
   verdict: string;
 }
@@ -427,6 +428,12 @@ const AUTH_LABEL: Record<AuthVariant, string> = {
   "x-api-key-bearer": 'x-api-key: "Bearer …"',
 };
 
+/** A route in one short phrase, for a step label. */
+function routeLabel(p: ProviderInfo, r: Route): string {
+  const path = r.url.startsWith(p.baseUrl) ? r.url.slice(p.baseUrl.length) || "/" : r.url;
+  return `${path} with ${AUTH_LABEL[r.auth]}`;
+}
+
 /** One probe POST, reported rather than thrown. */
 async function probe(
   p: ProviderInfo,
@@ -434,15 +441,15 @@ async function probe(
   body: Record<string, any>,
   id: ProbeStep["id"],
   label: string,
-  auth?: AuthVariant
+  route?: Route
 ): Promise<ProbeStep> {
   // Short enough that a wedged host cannot make the whole test outlast the
   // user's patience; far longer than a one-word reply needs.
-  let { res, error } = await post(p, apiKey, body, 30_000, auth);
+  let { res, error } = await post(p, apiKey, body, 30_000, route);
   // One retry, so a momentary gateway hiccup is not written down as a verdict.
   if (res && !res.ok && transient(res.status)) {
     await wait(RETRY_BACKOFF_MS[0]);
-    ({ res, error } = await post(p, apiKey, body, 30_000, auth));
+    ({ res, error } = await post(p, apiKey, body, 30_000, route));
   }
   if (!res) {
     const msg = error?.name === "AbortError"
@@ -474,7 +481,8 @@ export async function probeProvider(
   const steps: ProbeStep[] = [];
   const add = (step: ProbeStep) => { steps.push(step); onStep?.(step); };
   const hi = "Reply with the single word OK.";
-  let auth: AuthVariant = p.auth;
+  const all = routesFor(p);
+  let route: Route = all[0];
 
   const models = await listProviderModels(apiKey, p);
   add({
@@ -491,23 +499,23 @@ export async function probeProvider(
   // here would report "your key is bad" when the truth is "that model is not
   // served" — the very confusion this test exists to clear up.
   const one = (id: string) => ({ model: id, max_tokens: 64, messages: [{ role: "user", content: hi }] });
-  const first = await probe(p, apiKey, one(model), "model", `Model ${model}`, auth);
+  const first = await probe(p, apiKey, one(model), "model", `Model ${model}`, route);
   add(first);
 
-  // The key may be fine and simply sent the wrong way: a host that documents
-  // two auth routes may honour only one of them. Try the others before
-  // concluding anything about the key or the model.
-  let authStep: ProbeStep | null = null;
+  // The key and the model may both be fine, and the request simply addressed
+  // wrongly: a host can document more than one path and more than one auth
+  // header, and honour only one combination. Try the rest before concluding
+  // anything about the key or the model.
+  let routeStep: ProbeStep | null = null;
   if (!first.ok && first.status !== 0) {
-    for (const v of p.authVariants.filter((x) => x !== auth)) {
-      const alt = await probe(
-        p, apiKey, one(model), "auth", `Key sent as ${AUTH_LABEL[v]}`, v);
+    for (const r of all.slice(1)) {
+      const alt = await probe(p, apiKey, one(model), "auth", `Try ${routeLabel(p, r)}`, r);
       add(alt);
-      if (alt.ok) { auth = v; authStep = alt; break; }
+      if (alt.ok) { route = r; routeStep = alt; break; }
     }
   }
 
-  let working = first.ok || authStep ? model : "";
+  let working = first.ok || routeStep ? model : "";
   // A refusal that is not about the key may just be about the model. Ask the
   // catalogue for something that does work — Claude ids first, because a
   // gateway's catalogue can be mostly image/video models that would fail here
@@ -519,7 +527,7 @@ export async function probeProvider(
       ...others.filter((id) => !/claude/i.test(id)),
     ].slice(0, 3);
     for (const id of ranked) {
-      const st = await probe(p, apiKey, one(id), "model", `Model ${id}`, auth);
+      const st = await probe(p, apiKey, one(id), "model", `Model ${id}`, route);
       add(st);
       if (st.ok) { working = id; break; }
     }
@@ -537,7 +545,7 @@ export async function probeProvider(
       const step = await probe(
         p, apiKey,
         { ...one(working), max_tokens: n },
-        "length", `Reply length ${say(n)}`, auth
+        "length", `Reply length ${say(n)}`, route
       );
       if (step.ok) {
         lengthOk = true;
@@ -574,7 +582,7 @@ export async function probeProvider(
           ],
         }],
       },
-      "image", "Reads images (needed for drawings)", auth
+      "image", "Reads images (needed for drawings)", route
     );
     add(img);
     vision = img.ok;
@@ -585,7 +593,7 @@ export async function probeProvider(
     verdict = `Could not reach ${p.short} at all — ${first.detail}.`;
   } else if (!keyOk && (first.status === 401 || first.status === 403)) {
     verdict = `${p.short} rejected the key itself (${first.status})${
-      p.authVariants.length > 1 ? ", sent every way it documents" : ""}. Check the key at ${p.keyUrl}.`;
+      all.length > 1 ? ", on every route it documents" : ""}. Check the key at ${p.keyUrl}.`;
   } else if (working && working !== model) {
     const caveat = !vision
       ? ` That one will not take images, though, so it cannot read drawings.`
@@ -596,9 +604,9 @@ export async function probeProvider(
   } else if (!keyOk && models.length) {
     verdict = `${p.short} refused “${model}” (${first.status}) and every other model we tried — ${first.detail || "no detail given"}.`;
   } else if (!keyOk && transient(first.status)) {
-    verdict = `${p.short} could not serve even a one-word request (${first.status}) — ${first.detail || "no detail given"}. That status means their gateway could not reach the model, ${
-      p.authVariants.length > 1 ? "and sending the key the other way it documents changed nothing. " : ""
-    }so it is theirs to fix: nothing about this app's request would change it. Check ${p.keyUrl} that this key is for their Claude endpoint and has credit, then try again later.`;
+    verdict = `${p.short} could not serve even a one-word request (${first.status}) — ${first.detail || "no detail given"}. That status means their gateway could not reach the model${
+      all.length > 1 ? ", and none of the other routes they document answered either" : ""
+    }, so it is theirs to fix: nothing about this app's request would change it. Check ${p.keyUrl} that this key is for their Claude endpoint and has credit, then try again later.`;
   } else if (!keyOk) {
     verdict = `${p.short} refused a one-word request on “${model}” (${first.status}) — ${first.detail || "no detail given"}. It may not serve that model; ${p.short} publishes no model list, so try another id in the picker.`;
   } else if (rateLimited) {
@@ -614,8 +622,8 @@ export async function probeProvider(
   } else {
     verdict = `Working — ${p.short} accepts the key, the model, a full-length reply and drawing images.`;
   }
-  if (authStep) {
-    verdict += ` ${p.short} only accepted the key sent as ${AUTH_LABEL[auth]}, so that is how it will be sent from now on.`;
+  if (routeStep) {
+    verdict += ` ${p.short} only answered ${routeLabel(p, route)}, so that is how it will be called from now on.`;
   }
-  return { steps, models, cap, lengthOk, vision, model: working, auth, verdict };
+  return { steps, models, cap, lengthOk, vision, model: working, route, verdict };
 }

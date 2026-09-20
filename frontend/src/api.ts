@@ -16,8 +16,8 @@ import { DEFAULT_UNITS, DEMO_MEMBERS, DEMO_RATES } from "./engine/demo";
 import { mockParseNl } from "./engine/nl";
 import { claudeParseNl, claudeExtract, claudeReview, DEFAULT_MODEL } from "./engine/claude";
 import {
-  AuthVariant, ProviderInfo, ProviderPref, authVariantFor, modelFor,
-  normalizeKey, resolveProvider,
+  ProviderInfo, ProviderPref, Route, modelFor, normalizeKey, resolveProvider,
+  routeFor,
 } from "./engine/providers";
 import { downloadBoqXlsx } from "./engine/export";
 import {
@@ -131,7 +131,7 @@ export function getProvider(): ProviderInfo {
  */
 export function credentials(): {
   key: string; provider: ProviderInfo; model: string; maxTokensCap: number;
-  auth: AuthVariant;
+  route: Route;
 } {
   const key = getApiKey();
   const provider = resolveProvider(key, getProviderPref());
@@ -139,7 +139,7 @@ export function credentials(): {
   return {
     key, provider, model,
     maxTokensCap: getMaxTokensCap(provider, model),
-    auth: getAuthVariant(provider),
+    route: getRoute(provider),
   };
 }
 
@@ -175,24 +175,27 @@ export function setMaxTokensCap(provider: ProviderInfo, model: string, cap: numb
   try { localStorage.setItem(CAP_STORAGE, JSON.stringify(all)); } catch { /* ignore */ }
 }
 
-// How the key goes on the wire, per provider. A host that documents more than
-// one auth route may honour only one of them; the 🔑 self-test finds which and
-// records it here, so every later call is sent the way that host answered to.
-// Forgotten with the key, since it was discovered for that account.
+// Where a provider is called and how the key goes on the wire, per provider.
+// A host can document more than one path and more than one auth header and
+// honour only one combination; the 🔑 self-test finds which and records it
+// here, so every later call is made the way that host answered to. Forgotten
+// with the key, since it was discovered for that account.
 const AUTH_STORAGE = "boq.aiAuthMode";
-function authModes(): Record<string, string> {
+function routes(): Record<string, any> {
   try {
     const raw = JSON.parse(localStorage.getItem(AUTH_STORAGE) || "{}");
     return raw && typeof raw === "object" ? raw : {};
   } catch { return {}; }
 }
-export function getAuthVariant(provider?: ProviderInfo): AuthVariant {
+export function getRoute(provider?: ProviderInfo): Route {
   const p = provider || getProvider();
-  return authVariantFor(p, authModes()[p.id]);
+  const stored = routes()[p.id];
+  // Older builds stored the auth variant alone, as a bare string.
+  return routeFor(p, typeof stored === "string" ? { auth: stored } : stored);
 }
-export function setAuthVariant(provider: ProviderInfo, variant: AuthVariant): void {
-  const all = authModes();
-  all[provider.id] = authVariantFor(provider, variant);
+export function setRoute(provider: ProviderInfo, route: Route): void {
+  const all = routes();
+  all[provider.id] = routeFor(provider, route);
   try { localStorage.setItem(AUTH_STORAGE, JSON.stringify(all)); } catch { /* ignore */ }
 }
 
@@ -413,7 +416,7 @@ export const api = {
       const cred = credentials();
       result = await claudeParseNl(
         text, context, cred.key, cred.model, packPromptShapes(), cred.provider,
-        cred.maxTokensCap, cred.auth);
+        cred.maxTokensCap, cred.route);
     } else {
       provider = "mock";
       result = mockParseNl(text, discipline);
@@ -456,7 +459,7 @@ export const api = {
     // Read once, for the whole run: see credentials().
     const {
       key, provider: aiProvider, model: aiModel, maxTokensCap: aiCap,
-      auth: aiAuth,
+      route: aiRoute,
     } = credentials();
     if (!key) {
       throw new Error("Set your AI key (🔑 in the top bar, under ⋯ on a phone) to read PDFs — an Anthropic (sk-ant-…) or a kie.ai (sk-kie-…) key both work.");
@@ -478,7 +481,7 @@ export const api = {
       const result = await claudeExtract({
         page_no: pg.page_no, page_text: pg.text, page_image_b64: pg.image_b64,
         scale: "unknown", context: ctx, apiKey: key, model: aiModel, onProgress,
-        provider: aiProvider, maxTokensCap: aiCap, auth: aiAuth,
+        provider: aiProvider, maxTokensCap: aiCap, route: aiRoute,
         discipline, extraShapes: packPromptShapes(),
       });
       // Save members, remembering id↔label↔type so review suggestions can target them.
@@ -501,7 +504,7 @@ export const api = {
           page_no: pg.page_no, page_image_b64: pg.image_b64,
           members: result.members || [], context: ctx, apiKey: key, model: aiModel,
           extraShapes: packPromptShapes(), provider: aiProvider, maxTokensCap: aiCap,
-          auth: aiAuth,
+          route: aiRoute,
         });
         for (const r of sugg) {
           const lbl = String(r.target_label || "").trim().toLowerCase();

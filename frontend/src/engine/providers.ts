@@ -24,8 +24,18 @@ export interface ProviderInfo {
   short: string;
   /** API root, as the provider documents it (no /v1/messages). */
   baseUrl: string;
-  /** Messages endpoint (POST) — baseUrl + /v1/messages. */
+  /** Messages endpoint (POST) — the first of `urls`. */
   url: string;
+  /**
+   * Every messages endpoint this host might be reached at, best first.
+   *
+   * A gateway can route on the path rather than serve the Anthropic one: one
+   * kie.ai deployment glues whatever follows its base onto the model name, so
+   * a request to …/claude/v1/messages asking for "claude-sonnet-5" is recorded
+   * as "claude-sonnet-5-v1messages" and fails as an unknown model. The
+   * self-test tries each of these and keeps the one that answers.
+   */
+  urls: string[];
   /** Model catalogue (GET) — baseUrl + /v1/models. Not every host serves it. */
   modelsUrl: string;
   /** Key prefixes that identify this provider. */
@@ -62,8 +72,8 @@ const KIE_BASE = "https://api.kie.ai/claude";
 // Both providers serve the same two models, so switching provider never
 // silently changes which model reads your drawings.
 const MODELS: Array<[string, string]> = [
-  ["claude-sonnet-4-6", "Sonnet (fast)"],
-  ["claude-opus-4-8", "Opus (most thorough)"],
+  ["claude-sonnet-5", "Sonnet 5 (fast)"],
+  ["claude-opus-5", "Opus 5 (most thorough)"],
 ];
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
@@ -73,6 +83,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     short: "Anthropic",
     baseUrl: ANTHROPIC_BASE,
     url: `${ANTHROPIC_BASE}/v1/messages`,
+    urls: [`${ANTHROPIC_BASE}/v1/messages`],
     modelsUrl: `${ANTHROPIC_BASE}/v1/models`,
     keyPrefixes: ["sk-ant-"],
     keyHint: "sk-ant-",
@@ -92,6 +103,9 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     // client appends /v1/messages itself — which is what we do here.
     baseUrl: KIE_BASE,
     url: `${KIE_BASE}/v1/messages`,
+    // The documented Anthropic-style path first; then the base on its own,
+    // which is what their market router appears to want.
+    urls: [`${KIE_BASE}/v1/messages`, KIE_BASE],
     modelsUrl: `${KIE_BASE}/v1/models`,
     keyPrefixes: ["sk-kie-"],
     keyHint: "sk-kie-",
@@ -204,6 +218,33 @@ export function authHeaders(
     headers["anthropic-dangerous-direct-browser-access"] = "true";
   }
   return headers;
+}
+
+/** One way of reaching a host: where to post, and how to send the key. */
+export interface Route {
+  url: string;
+  auth: AuthVariant;
+}
+
+/**
+ * Every route to try, best first.
+ *
+ * Endpoint varies fastest: when a host answers the same way to a wrong path
+ * and a wrong auth header, the path is the likelier culprit — it is the one
+ * thing an Anthropic client is opinionated about.
+ */
+export function routesFor(provider: ProviderInfo): Route[] {
+  const out: Route[] = [];
+  for (const auth of provider.authVariants) {
+    for (const url of provider.urls) out.push({ url, auth });
+  }
+  return out;
+}
+
+/** Keep a stored route only if this provider documents it. */
+export function routeFor(provider: ProviderInfo, route?: Partial<Route> | null): Route {
+  const url = provider.urls.includes(String(route?.url)) ? String(route?.url) : provider.url;
+  return { url, auth: authVariantFor(provider, route?.auth) };
 }
 
 /** Keep a stored auth variant only if this provider documents it. */
