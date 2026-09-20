@@ -94,6 +94,63 @@ def test_model_for_sends_what_was_chosen():
         assert model_for(PROVIDERS["kie"], empty) == PROVIDERS["kie"]["models"][0][0]
 
 
+def test_auth_variants_are_the_routes_each_host_documents():
+    from app.ai.providers import auth_variant_for
+
+    a, k = PROVIDERS["anthropic"], PROVIDERS["kie"]
+    assert a["auth_variants"] == ["x-api-key"]
+    # kie.ai documents ANTHROPIC_AUTH_TOKEN (a bearer token) and
+    # ANTHROPIC_API_KEY holding the literal text "Bearer <key>".
+    assert k["auth_variants"] == ["bearer", "x-api-key-bearer"]
+    for p in PROVIDERS.values():
+        assert p["auth"] == p["auth_variants"][0]
+
+    # The second route is the same header carrying the word Bearer.
+    h = auth_headers(k, "sk-kie-abc", "x-api-key-bearer")
+    assert h["x-api-key"] == "Bearer sk-kie-abc"
+    assert "authorization" not in h
+    # A key is never sent twice, by two routes, in one request.
+    for variant in (None, "bearer", "x-api-key-bearer", "nonsense"):
+        sent = [v for k2, v in auth_headers(k, "sk-kie-abc", variant).items()
+                if k2 in ("authorization", "x-api-key")]
+        assert len(sent) == 1
+
+    # A variant a provider does not document falls back to its default.
+    assert auth_variant_for(k, "x-api-key") == "bearer"
+    assert auth_variant_for(k, "") == "bearer"
+    assert auth_variant_for(a, "bearer") == "x-api-key"
+    assert auth_variant_for(k, "x-api-key-bearer") == "x-api-key-bearer"
+
+
+def test_routes_are_every_documented_way_to_reach_a_host():
+    from app.ai.providers import route_for, routes_for
+
+    a, k = PROVIDERS["anthropic"], PROVIDERS["kie"]
+    # The documented Anthropic path is always first; a host that routes on the
+    # path (kie.ai glues what follows its base onto the model name) also has
+    # its base on its own.
+    assert a["urls"] == [a["url"]]
+    assert k["urls"] == [k["url"], k["base_url"]]
+    for p in PROVIDERS.values():
+        assert p["url"] == p["urls"][0]
+
+    assert routes_for(a) == [{"url": a["url"], "auth": "x-api-key"}]
+    assert routes_for(k) == [
+        {"url": k["url"], "auth": "bearer"},
+        {"url": k["base_url"], "auth": "bearer"},
+        {"url": k["url"], "auth": "x-api-key-bearer"},
+        {"url": k["base_url"], "auth": "x-api-key-bearer"},
+    ]
+
+    # A route a provider does not document is never used, however it arrived.
+    assert route_for(k, {"url": "https://evil.example/v1/messages"})["url"] == k["url"]
+    assert route_for(k, {"auth": "basic"})["auth"] == "bearer"
+    assert route_for(a, {"url": k["url"], "auth": "bearer"}) == {
+        "url": a["url"], "auth": "x-api-key",
+    }
+    assert route_for(k, None) == {"url": k["url"], "auth": "bearer"}
+
+
 def test_every_provider_publishes_a_model_catalogue_url():
     for p in PROVIDERS.values():
         assert p["models_url"] == p["base_url"] + "/v1/models"
@@ -239,6 +296,16 @@ def test_ts_and_python_agree_on_auth_prefixes_and_links(pid):
     block = _ts_block(pid)
     py = PROVIDERS[pid]
     assert re.search(rf'auth: "{py["auth"]}"', block)
+    # The two engines must agree on every route a host documents, in order:
+    # sending a key the way only one of them believes in is how a working key
+    # gets reported as a bad one.
+    variants = ", ".join(f'"{v}"' for v in py["auth_variants"])
+    assert f"authVariants: [{variants}]" in block
+    # Both engines must reach for the same endpoints in the same order: a path
+    # only one of them knows about is a route the other can never find.
+    assert len(re.findall(r"urls: \[", block)) == 1
+    urls = re.search(r"urls: \[(.+?)\]", block, re.S).group(1)
+    assert urls.count(",") == len(py["urls"]) - 1
     assert re.search(rf'keyUrl: "{re.escape(py["key_url"])}"', block)
     for prefix in py["key_prefixes"]:
         assert f'"{prefix}"' in block

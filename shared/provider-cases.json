@@ -8,47 +8,174 @@
     "not mirrored on the other fails its own job."
   ],
   "normalize": [
-    { "in": "sk-ant-api03-abcdefgh", "out": "sk-ant-api03-abcdefgh" },
-    { "in": "  sk-kie-abcdefgh12  ", "out": "sk-kie-abcdefgh12" },
-    { "in": "sk-kie-abcdefgh12\n", "out": "sk-kie-abcdefgh12" },
-    { "in": "Bearer sk-kie-abcdefgh12", "out": "sk-kie-abcdefgh12" },
-    { "in": "bearer sk-kie-abcdefgh12", "out": "sk-kie-abcdefgh12" },
-    { "in": "BEARER  sk-kie-abcdefgh12", "out": "sk-kie-abcdefgh12" },
-    { "in": "Bearer\tsk-kie-abcdefgh12", "out": "sk-kie-abcdefgh12" },
-    { "in": "\"sk-ant-abcdefgh12\"", "out": "sk-ant-abcdefgh12" },
-    { "in": "'sk-kie-abcdefgh12'", "out": "sk-kie-abcdefgh12" },
-    { "in": "\"Bearer sk-kie-abcdefgh12\"", "out": "sk-kie-abcdefgh12" },
-    { "in": "export ANTHROPIC_API_KEY=\"Bearer sk-kie-abcdefgh12\"", "out": "sk-kie-abcdefgh12" },
-    { "in": "export ANTHROPIC_AUTH_TOKEN=sk-kie-abcdefgh12", "out": "sk-kie-abcdefgh12" },
-    { "in": "ANTHROPIC_API_KEY='sk-ant-api03-abcdefgh'", "out": "sk-ant-api03-abcdefgh" },
-    { "in": "my key is sk-kie-abcdefgh12 thanks", "out": "sk-kie-abcdefgh12" },
-    { "in": "\"", "out": "\"" },
-    { "in": "''", "out": "" },
-    { "in": "bearer", "out": "bearer" },
-    { "in": "nonsense", "out": "nonsense" },
-    { "in": "   ", "out": "" },
-    { "in": "", "out": "" }
+    {
+      "in": "sk-ant-api03-abcdefgh",
+      "out": "sk-ant-api03-abcdefgh"
+    },
+    {
+      "in": "  sk-kie-abcdefgh12  ",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "sk-kie-abcdefgh12\n",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "Bearer sk-kie-abcdefgh12",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "bearer sk-kie-abcdefgh12",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "BEARER  sk-kie-abcdefgh12",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "Bearer\tsk-kie-abcdefgh12",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "\"sk-ant-abcdefgh12\"",
+      "out": "sk-ant-abcdefgh12"
+    },
+    {
+      "in": "'sk-kie-abcdefgh12'",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "\"Bearer sk-kie-abcdefgh12\"",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "export ANTHROPIC_API_KEY=\"Bearer sk-kie-abcdefgh12\"",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "export ANTHROPIC_AUTH_TOKEN=sk-kie-abcdefgh12",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "ANTHROPIC_API_KEY='sk-ant-api03-abcdefgh'",
+      "out": "sk-ant-api03-abcdefgh"
+    },
+    {
+      "in": "my key is sk-kie-abcdefgh12 thanks",
+      "out": "sk-kie-abcdefgh12"
+    },
+    {
+      "in": "\"",
+      "out": "\""
+    },
+    {
+      "in": "''",
+      "out": ""
+    },
+    {
+      "in": "bearer",
+      "out": "bearer"
+    },
+    {
+      "in": "nonsense",
+      "out": "nonsense"
+    },
+    {
+      "in": "   ",
+      "out": ""
+    },
+    {
+      "in": "",
+      "out": ""
+    }
   ],
   "detect": [
-    { "key": "sk-ant-api03-abcdefgh", "provider": "anthropic" },
-    { "key": "SK-ANT-API03-ABCDEFGH", "provider": "anthropic" },
-    { "key": "sk-kie-abcdefgh12", "provider": "kie" },
-    { "key": "Bearer sk-kie-abcdefgh12", "provider": "kie" },
-    { "key": "export ANTHROPIC_API_KEY=\"Bearer sk-kie-abcdefgh12\"", "provider": "kie" },
-    { "key": "sk-other-abcdefgh12", "provider": null },
-    { "key": "nonsense", "provider": null },
-    { "key": "", "provider": null }
+    {
+      "key": "sk-ant-api03-abcdefgh",
+      "provider": "anthropic"
+    },
+    {
+      "key": "SK-ANT-API03-ABCDEFGH",
+      "provider": "anthropic"
+    },
+    {
+      "key": "sk-kie-abcdefgh12",
+      "provider": "kie"
+    },
+    {
+      "key": "Bearer sk-kie-abcdefgh12",
+      "provider": "kie"
+    },
+    {
+      "key": "export ANTHROPIC_API_KEY=\"Bearer sk-kie-abcdefgh12\"",
+      "provider": "kie"
+    },
+    {
+      "key": "sk-other-abcdefgh12",
+      "provider": null
+    },
+    {
+      "key": "nonsense",
+      "provider": null
+    },
+    {
+      "key": "",
+      "provider": null
+    }
   ],
   "resolve": [
-    { "key": "sk-ant-abcdefgh12", "pref": "auto", "provider": "anthropic" },
-    { "key": "sk-kie-abcdefgh12", "pref": "auto", "provider": "kie" },
-    { "key": "sk-kie-abcdefgh12", "pref": "anthropic", "provider": "kie", "ignored": true },
-    { "key": "sk-ant-abcdefgh12", "pref": "kie", "provider": "anthropic", "ignored": true },
-    { "key": "sk-kie-abcdefgh12", "pref": "kie", "provider": "kie", "ignored": false },
-    { "key": "sk-other-abcdefgh12", "pref": "kie", "provider": "kie", "ignored": false },
-    { "key": "sk-other-abcdefgh12", "pref": "auto", "provider": "anthropic", "ignored": false },
-    { "key": "", "pref": "auto", "provider": "anthropic", "ignored": false },
-    { "key": "", "pref": "kie", "provider": "kie", "ignored": false }
+    {
+      "key": "sk-ant-abcdefgh12",
+      "pref": "auto",
+      "provider": "anthropic"
+    },
+    {
+      "key": "sk-kie-abcdefgh12",
+      "pref": "auto",
+      "provider": "kie"
+    },
+    {
+      "key": "sk-kie-abcdefgh12",
+      "pref": "anthropic",
+      "provider": "kie",
+      "ignored": true
+    },
+    {
+      "key": "sk-ant-abcdefgh12",
+      "pref": "kie",
+      "provider": "anthropic",
+      "ignored": true
+    },
+    {
+      "key": "sk-kie-abcdefgh12",
+      "pref": "kie",
+      "provider": "kie",
+      "ignored": false
+    },
+    {
+      "key": "sk-other-abcdefgh12",
+      "pref": "kie",
+      "provider": "kie",
+      "ignored": false
+    },
+    {
+      "key": "sk-other-abcdefgh12",
+      "pref": "auto",
+      "provider": "anthropic",
+      "ignored": false
+    },
+    {
+      "key": "",
+      "pref": "auto",
+      "provider": "anthropic",
+      "ignored": false
+    },
+    {
+      "key": "",
+      "pref": "kie",
+      "provider": "kie",
+      "ignored": false
+    }
   ],
   "headers": [
     {
@@ -76,7 +203,13 @@
     "kie": "https://api.kie.ai/claude/v1/messages"
   },
   "models": [
-    ["claude-sonnet-4-6", "Sonnet (fast)"],
-    ["claude-opus-4-8", "Opus (most thorough)"]
+    [
+      "claude-sonnet-5",
+      "Sonnet 5 (fast)"
+    ],
+    [
+      "claude-opus-5",
+      "Opus 5 (most thorough)"
+    ]
   ]
 }

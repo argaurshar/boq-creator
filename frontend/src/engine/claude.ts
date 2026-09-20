@@ -6,12 +6,28 @@
 import { extractPrompt, nlPrompt, reviewPrompt } from "./prompts";
 import { DEFAULT_DISCIPLINE } from "./disciplines";
 import {
-  PROVIDER_LIST, ProviderInfo, authHeaders, detectProvider, resolveProvider,
+  AuthVariant, PROVIDER_LIST, ProviderInfo, Route, authHeaders, detectProvider,
+  resolveProvider, routeFor, routesFor,
 } from "./providers";
 
-export const DEFAULT_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_MODEL = "claude-sonnet-5";
 /** Hard ceiling for one provider call. */
 const CALL_TIMEOUT_MS = 300_000;
+
+/**
+ * Statuses that say "not now", never "not this request".
+ *
+ * A gateway in front of the model answers 502/503/504 when its own upstream is
+ * unreachable, and Cloudflare's 520-530 family means the same thing. A page
+ * read is one of dozens in a run, so one blip must not end the run — and it
+ * must never be read as a verdict on the request we sent.
+ */
+function transient(status: number): boolean {
+  return status === 408 || status === 429 ||
+    (status >= 502 && status <= 504) || (status >= 520 && status <= 530);
+}
+const RETRY_BACKOFF_MS = [1500, 4000];
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Content = Array<Record<string, any>>;
 
@@ -103,14 +119,16 @@ async function post(
   p: ProviderInfo,
   apiKey: string,
   body: Record<string, any>,
-  timeoutMs = CALL_TIMEOUT_MS
+  timeoutMs = CALL_TIMEOUT_MS,
+  route?: Route
 ): Promise<{ res: Response | null; error: any }> {
+  const r = routeFor(p, route);
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   try {
-    const res = await fetch(p.url, {
+    const res = await fetch(r.url, {
       method: "POST",
-      headers: authHeaders(p, apiKey),
+      headers: authHeaders(p, apiKey, r.auth),
       signal: abort.signal,
       body: JSON.stringify(body),
     });
@@ -129,7 +147,8 @@ async function jsonCall(
   model: string,
   maxTokens = 16000,
   provider?: ProviderInfo,
-  maxTokensCap = 0
+  maxTokensCap = 0,
+  route?: Route
 ): Promise<any> {
   // No provider passed (or an older call site): let the key decide.
   const p = provider || resolveProvider(apiKey);
@@ -144,12 +163,19 @@ async function jsonCall(
     // A gateway that accepts the connection and then never answers would
     // otherwise leave "Reading drawings…" spinning for ever. Well beyond any
     // real call (vision + 16k output), but bounded.
-    const { res, error } = await post(p, apiKey, {
+    const body = {
       model,
       max_tokens: tokens,
       system: sys,
       messages: [{ role: "user", content }],
-    });
+    };
+    let { res, error } = await post(p, apiKey, body, CALL_TIMEOUT_MS, route);
+    // A gateway that cannot reach its own upstream says so with a 5xx and asks
+    // to be tried again. One page of a long run must not end the run over it.
+    for (let i = 0; res && !res.ok && transient(res.status) && i < RETRY_BACKOFF_MS.length; i++) {
+      await wait(RETRY_BACKOFF_MS[i]);
+      ({ res, error } = await post(p, apiKey, body, CALL_TIMEOUT_MS, route));
+    }
     if (!res) {
       if (error?.name === "AbortError") {
         throw new Error(
@@ -187,14 +213,17 @@ export async function claudeParseNl(
   model: string = DEFAULT_MODEL,
   extraShapes = "",
   provider?: ProviderInfo,
-  maxTokensCap = 0
+  maxTokensCap = 0,
+  route?: Route
 ): Promise<any> {
   const content: Content = [{
     type: "text",
     text: `Project defaults: ${JSON.stringify(context)}\n\nInstruction:\n${text}`,
   }];
   const discipline = String(context?.discipline || DEFAULT_DISCIPLINE);
-  return jsonCall(nlPrompt(discipline, extraShapes), content, apiKey, model, 8000, provider, maxTokensCap);
+  return jsonCall(
+    nlPrompt(discipline, extraShapes), content, apiKey, model, 8000, provider,
+    maxTokensCap, route);
 }
 
 function dedupeMembers(lists: any[][]): any[] {
@@ -225,6 +254,8 @@ export async function claudeExtract(args: {
   provider?: ProviderInfo;
   /** Reply-length ceiling this host was found to accept; 0 = no ceiling. */
   maxTokensCap?: number;
+  /** Where to post and how to send the key, when the default is not it. */
+  route?: Route;
 }): Promise<any> {
   const model = args.model || DEFAULT_MODEL;
   const EXTRACT_PROMPT = extractPrompt(args.discipline || DEFAULT_DISCIPLINE, args.extraShapes || "");
@@ -244,7 +275,7 @@ export async function claudeExtract(args: {
   });
 
   // Pass 1 — extract everything.
-  const first = await jsonCall(EXTRACT_PROMPT, base, args.apiKey, model, 16000, args.provider, args.maxTokensCap);
+  const first = await jsonCall(EXTRACT_PROMPT, base, args.apiKey, model, 16000, args.provider, args.maxTokensCap, args.route);
 
   // Pass 2 — completeness sweep: find anything missed. Re-checking each schedule
   // row and grid line against what's already captured catches under-extraction.
@@ -267,7 +298,7 @@ export async function claudeExtract(args: {
   ];
   let second: any = { members: [], unresolved: [] };
   try {
-    second = await jsonCall(EXTRACT_PROMPT, sweep, args.apiKey, model, 16000, args.provider, args.maxTokensCap);
+    second = await jsonCall(EXTRACT_PROMPT, sweep, args.apiKey, model, 16000, args.provider, args.maxTokensCap, args.route);
   } catch {
     /* sweep is best-effort; keep pass-1 results if it fails */
   }
@@ -288,6 +319,8 @@ export async function claudeReview(args: {
   provider?: ProviderInfo;
   /** Reply-length ceiling this host was found to accept; 0 = no ceiling. */
   maxTokensCap?: number;
+  /** Where to post and how to send the key, when the default is not it. */
+  route?: Route;
 }): Promise<any[]> {
   if (!args.page_image_b64 || !(args.members || []).length) return [];
   const model = args.model || DEFAULT_MODEL;
@@ -303,7 +336,7 @@ export async function claudeReview(args: {
     },
   ];
   try {
-    const res = await jsonCall(reviewPrompt(args.extraShapes || ""), content, args.apiKey, model, 12000, args.provider, args.maxTokensCap);
+    const res = await jsonCall(reviewPrompt(args.extraShapes || ""), content, args.apiKey, model, 12000, args.provider, args.maxTokensCap, args.route);
     const reviews = Array.isArray(res?.reviews) ? res.reviews : [];
     return reviews.filter((r: any) => r && r.op && r.op !== "ok");
   } catch {
@@ -326,7 +359,7 @@ const PROBE_PNG =
 const TOKEN_LADDER = [16000, 8192, 4096, 1024];
 
 export interface ProbeStep {
-  id: "models" | "key" | "model" | "length" | "image";
+  id: "models" | "key" | "model" | "auth" | "length" | "image";
   label: string;
   ok: boolean;
   /** Something we learned, not something that has to work. Shown neutrally. */
@@ -348,6 +381,8 @@ export interface ProbeResult {
   vision: boolean;
   /** The model every measurement above was taken on ("" when none worked). */
   model: string;
+  /** Where the host had to be called, and how, for it to answer. */
+  route: Route;
   /** One sentence for the user, and what to do about it. */
   verdict: string;
 }
@@ -386,20 +421,39 @@ export async function listProviderModels(
   }
 }
 
+/** How a key is being put on the wire, in words a user can act on. */
+const AUTH_LABEL: Record<AuthVariant, string> = {
+  "bearer": "Authorization: Bearer",
+  "x-api-key": "x-api-key",
+  "x-api-key-bearer": 'x-api-key: "Bearer …"',
+};
+
+/** A route in one short phrase, for a step label. */
+function routeLabel(p: ProviderInfo, r: Route): string {
+  const path = r.url.startsWith(p.baseUrl) ? r.url.slice(p.baseUrl.length) || "/" : r.url;
+  return `${path} with ${AUTH_LABEL[r.auth]}`;
+}
+
 /** One probe POST, reported rather than thrown. */
 async function probe(
   p: ProviderInfo,
   apiKey: string,
   body: Record<string, any>,
   id: ProbeStep["id"],
-  label: string
+  label: string,
+  route?: Route
 ): Promise<ProbeStep> {
   // Short enough that a wedged host cannot make the whole test outlast the
   // user's patience; far longer than a one-word reply needs.
-  const { res, error } = await post(p, apiKey, body, 30_000);
+  let { res, error } = await post(p, apiKey, body, 30_000, route);
+  // One retry, so a momentary gateway hiccup is not written down as a verdict.
+  if (res && !res.ok && transient(res.status)) {
+    await wait(RETRY_BACKOFF_MS[0]);
+    ({ res, error } = await post(p, apiKey, body, 30_000, route));
+  }
   if (!res) {
     const msg = error?.name === "AbortError"
-      ? "no answer within a minute"
+      ? "no answer within 30 seconds"
       : String(error?.message || error);
     return { id, label, ok: false, status: 0, detail: msg };
   }
@@ -427,6 +481,8 @@ export async function probeProvider(
   const steps: ProbeStep[] = [];
   const add = (step: ProbeStep) => { steps.push(step); onStep?.(step); };
   const hi = "Reply with the single word OK.";
+  const all = routesFor(p);
+  let route: Route = all[0];
 
   const models = await listProviderModels(apiKey, p);
   add({
@@ -443,10 +499,23 @@ export async function probeProvider(
   // here would report "your key is bad" when the truth is "that model is not
   // served" — the very confusion this test exists to clear up.
   const one = (id: string) => ({ model: id, max_tokens: 64, messages: [{ role: "user", content: hi }] });
-  const first = await probe(p, apiKey, one(model), "model", `Model ${model}`);
+  const first = await probe(p, apiKey, one(model), "model", `Model ${model}`, route);
   add(first);
 
-  let working = first.ok ? model : "";
+  // The key and the model may both be fine, and the request simply addressed
+  // wrongly: a host can document more than one path and more than one auth
+  // header, and honour only one combination. Try the rest before concluding
+  // anything about the key or the model.
+  let routeStep: ProbeStep | null = null;
+  if (!first.ok && first.status !== 0) {
+    for (const r of all.slice(1)) {
+      const alt = await probe(p, apiKey, one(model), "auth", `Try ${routeLabel(p, r)}`, r);
+      add(alt);
+      if (alt.ok) { route = r; routeStep = alt; break; }
+    }
+  }
+
+  let working = first.ok || routeStep ? model : "";
   // A refusal that is not about the key may just be about the model. Ask the
   // catalogue for something that does work — Claude ids first, because a
   // gateway's catalogue can be mostly image/video models that would fail here
@@ -458,7 +527,7 @@ export async function probeProvider(
       ...others.filter((id) => !/claude/i.test(id)),
     ].slice(0, 3);
     for (const id of ranked) {
-      const st = await probe(p, apiKey, one(id), "model", `Model ${id}`);
+      const st = await probe(p, apiKey, one(id), "model", `Model ${id}`, route);
       add(st);
       if (st.ok) { working = id; break; }
     }
@@ -476,7 +545,7 @@ export async function probeProvider(
       const step = await probe(
         p, apiKey,
         { ...one(working), max_tokens: n },
-        "length", `Reply length ${say(n)}`
+        "length", `Reply length ${say(n)}`, route
       );
       if (step.ok) {
         lengthOk = true;
@@ -487,9 +556,14 @@ export async function probeProvider(
       // A rate limit says nothing about how long a reply may be. Reading one as
       // "this rung is too long" would pin a permanent ceiling on a passing
       // squall, so stop and say what actually happened.
-      if (step.status === 429 || step.status === 529) {
+      if (transient(step.status)) {
         rateLimited = true;
-        add({ ...step, detail: step.detail || "rate limited — not a length limit" });
+        add({
+          ...step,
+          detail: step.detail || (step.status === 429
+            ? "rate limited — not a length limit"
+            : "the host was unavailable — not a length limit"),
+        });
         break;
       }
       if (n === TOKEN_LADDER[TOKEN_LADDER.length - 1]) add(step);
@@ -508,7 +582,7 @@ export async function probeProvider(
           ],
         }],
       },
-      "image", "Reads images (needed for drawings)"
+      "image", "Reads images (needed for drawings)", route
     );
     add(img);
     vision = img.ok;
@@ -518,7 +592,8 @@ export async function probeProvider(
   if (!keyOk && first.status === 0) {
     verdict = `Could not reach ${p.short} at all — ${first.detail}.`;
   } else if (!keyOk && (first.status === 401 || first.status === 403)) {
-    verdict = `${p.short} rejected the key itself (${first.status}).`;
+    verdict = `${p.short} rejected the key itself (${first.status})${
+      all.length > 1 ? ", on every route it documents" : ""}. Check the key at ${p.keyUrl}.`;
   } else if (working && working !== model) {
     const caveat = !vision
       ? ` That one will not take images, though, so it cannot read drawings.`
@@ -528,10 +603,14 @@ export async function probeProvider(
     verdict = `${p.short} does not serve “${model}”, but does serve “${working}”. Pick that model below.${caveat}`;
   } else if (!keyOk && models.length) {
     verdict = `${p.short} refused “${model}” (${first.status}) and every other model we tried — ${first.detail || "no detail given"}.`;
+  } else if (!keyOk && transient(first.status)) {
+    verdict = `${p.short} could not serve even a one-word request (${first.status}) — ${first.detail || "no detail given"}. That status means their gateway could not reach the model${
+      all.length > 1 ? ", and none of the other routes they document answered either" : ""
+    }, so it is theirs to fix: nothing about this app's request would change it. Check ${p.keyUrl} that this key is for their Claude endpoint and has credit, then try again later.`;
   } else if (!keyOk) {
     verdict = `${p.short} refused a one-word request on “${model}” (${first.status}) — ${first.detail || "no detail given"}. It may not serve that model; ${p.short} publishes no model list, so try another id in the picker.`;
   } else if (rateLimited) {
-    verdict = `${p.short} rate-limited the test before it could measure the reply length. Wait a minute and run it again — nothing has been changed.`;
+    verdict = `${p.short} stopped answering before the test could measure the reply length — a rate limit or a gateway having a bad minute, not a verdict on the request. Wait a minute and run it again; nothing has been changed.`;
   } else if (!lengthOk) {
     verdict = `${p.short} answered a one-word request but refused every reply length we asked for, down to ${say(TOKEN_LADDER[TOKEN_LADDER.length - 1])}. Nothing here can fix that — it is a limit on their side.`;
   } else if (!vision && cap) {
@@ -543,5 +622,8 @@ export async function probeProvider(
   } else {
     verdict = `Working — ${p.short} accepts the key, the model, a full-length reply and drawing images.`;
   }
-  return { steps, models, cap, lengthOk, vision, model: working, verdict };
+  if (routeStep) {
+    verdict += ` ${p.short} only answered ${routeLabel(p, route)}, so that is how it will be called from now on.`;
+  }
+  return { steps, models, cap, lengthOk, vision, model: working, route, verdict };
 }

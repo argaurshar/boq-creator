@@ -61,21 +61,23 @@ try {
 
   const KIE = "sk-kie-abcdefgh12";
   const ANT = "sk-ant-abcdefgh12";
+  const SONNET = "claude-sonnet-5";
+  const OPUS = "claude-opus-5";
 
   // ------------------------------------------------------------- the model
   reset();
   A.setApiKey(KIE);
-  eq("a fresh browser uses the default model", A.getModel(), "claude-sonnet-4-6");
+  eq("a fresh browser uses the default model", A.getModel(), SONNET);
   A.setModel("claude-3-7-sonnet");
   eq("a chosen model is kept verbatim", A.getModel(), "claude-3-7-sonnet");
   // A model id proven on a gateway means nothing on the other host.
   A.setApiKey(ANT);
-  eq("the other provider keeps its own model", A.getModel(), "claude-sonnet-4-6");
-  A.setModel("claude-opus-4-8");
+  eq("the other provider keeps its own model", A.getModel(), SONNET);
+  A.setModel(OPUS);
   A.setApiKey(KIE);
   eq("and coming back restores the first one", A.getModel(), "claude-3-7-sonnet");
   A.setApiKey(ANT);
-  eq("as does going the other way", A.getModel(), "claude-opus-4-8");
+  eq("as does going the other way", A.getModel(), OPUS);
   // A model can be recorded against a provider that is not the active one:
   // the self-test runs on the key being typed, not the one already saved.
   A.setApiKey(KIE);
@@ -86,9 +88,9 @@ try {
 
   // An older build stored a bare id, not a map. It must survive the upgrade.
   reset();
-  localStorage.setItem("boq.claudeModel", "claude-opus-4-8");
+  localStorage.setItem("boq.claudeModel", OPUS);
   A.setApiKey(KIE);
-  eq("a pre-upgrade model is still honoured", A.getModel(), "claude-opus-4-8");
+  eq("a pre-upgrade model is still honoured", A.getModel(), OPUS);
   A.setModel("claude-3-7-sonnet");
   eq("and is replaced cleanly", A.getModel(), "claude-3-7-sonnet");
 
@@ -102,8 +104,6 @@ try {
   reset();
   A.setApiKey(KIE);
   const kie = A.getProvider();
-  const SONNET = "claude-sonnet-4-6";
-  const OPUS = "claude-opus-4-8";
   eq("no ceiling is assumed", A.getMaxTokensCap(kie, SONNET), 0);
   A.setMaxTokensCap(kie, SONNET, 4096);
   eq("a measured ceiling is kept", A.getMaxTokensCap(kie, SONNET), 4096);
@@ -136,6 +136,36 @@ try {
   A.setApiKey(KIE);
   eq("a pre-upgrade ceiling is not inherited", A.credentials().maxTokensCap, 0);
 
+  // -------------------------------------------------------------- the route
+  const KIE_BASE = "https://api.kie.ai/claude";
+  const KIE_MSGS = `${KIE_BASE}/v1/messages`;
+  reset();
+  A.setApiKey(KIE);
+  eq("the documented route is assumed", A.getRoute(A.getProvider()), { url: KIE_MSGS, auth: "bearer" });
+  A.setRoute(A.getProvider(), { url: KIE_BASE, auth: "x-api-key-bearer" });
+  eq("a discovered route is kept", A.getRoute(A.getProvider()), { url: KIE_BASE, auth: "x-api-key-bearer" });
+  eq("and travels with the credentials", A.credentials().route, { url: KIE_BASE, auth: "x-api-key-bearer" });
+  // A route one host documents is meaningless — and unreachable — on the other.
+  A.setApiKey(ANT);
+  eq("the other provider keeps its own", A.getRoute(A.getProvider()).auth, "x-api-key");
+  A.setRoute(A.getProvider(), { url: KIE_BASE, auth: "bearer" });
+  eq("and refuses an auth it does not document", A.getRoute(A.getProvider()).auth, "x-api-key");
+  eq("and a host it is not", A.getRoute(A.getProvider()).url, "https://api.anthropic.com/v1/messages");
+  // Discovered for one account, so forgotten with it.
+  A.setApiKey(KIE);
+  eq("a key change starts over", A.getRoute(A.getProvider()), { url: KIE_MSGS, auth: "bearer" });
+  // An older build stored the auth variant alone, as a bare string. An
+  // upgrading browser already holds the key, so nothing clears it.
+  reset();
+  A.setApiKey(KIE);
+  localStorage.setItem("boq.aiAuthMode", JSON.stringify({ kie: "x-api-key-bearer" }));
+  eq("a pre-upgrade auth choice still counts", A.credentials().route, { url: KIE_MSGS, auth: "x-api-key-bearer" });
+  // Junk in storage must not decide where a key is sent.
+  reset();
+  A.setApiKey(KIE);
+  localStorage.setItem("boq.aiAuthMode", "{not json");
+  eq("garbage falls back to the documented route", A.credentials().route, { url: KIE_MSGS, auth: "bearer" });
+
   // ------------------------------------------------------------- the key
   reset();
   A.setApiKey(`  export ANTHROPIC_API_KEY="Bearer ${KIE}"  `);
@@ -145,7 +175,7 @@ try {
   A.setApiKey("");
   eq("removing the key removes it", A.getApiKey(), "");
   eq("and the provider pin with it", A.getProviderPref(), "auto");
-  eq("and the ceiling with it", A.getMaxTokensCap(A.getProvider(), "claude-sonnet-4-6"), 0);
+  eq("and the ceiling with it", A.getMaxTokensCap(A.getProvider(), SONNET), 0);
 
   // A key and the provider it goes to are read as one set, never separately.
   reset();
@@ -153,7 +183,7 @@ try {
   A.setProviderPref("anthropic");
   const cred = A.credentials();
   eq("a recognised key ignores a pin pointing elsewhere", cred.provider.id, "kie");
-  eq("and the credentials name that provider's model", cred.model, "claude-sonnet-4-6");
+  eq("and the credentials name that provider's model", cred.model, SONNET);
   eq("and carry the key itself", cred.key, KIE);
 
   // ------------------------------------------------- storage that does not work
@@ -166,8 +196,10 @@ try {
     ["getProviderPref", () => A.getProviderPref()],
     ["credentials", () => A.credentials().provider.id],
     ["setApiKey", () => A.setApiKey(KIE)],
-    ["setModel", () => A.setModel("claude-opus-4-8")],
-    ["setMaxTokensCap", () => A.setMaxTokensCap(A.getProvider(), "claude-sonnet-4-6", 4096)],
+    ["setModel", () => A.setModel(OPUS)],
+    ["setMaxTokensCap", () => A.setMaxTokensCap(A.getProvider(), SONNET, 4096)],
+    ["getRoute", () => A.getRoute()],
+    ["setRoute", () => A.setRoute(A.getProvider(), { url: KIE_MSGS, auth: "bearer" })],
   ]) {
     try { fn(); } catch (e) { failures.push(`${name}() threw when storage is unavailable: ${e.message}`); }
   }
