@@ -237,14 +237,13 @@ try {
     eq("the documented default is tried first", seen[0], "bearer:Bearer sk-kie-abcdefgh12");
     // A 530 is retried once before the route is blamed, so the second attempt
     // is the same route again; the fallback comes after that.
-    const firstAlt = seen.findIndex((h) => h.startsWith("x-api-key:"));
-    if (firstAlt < 1) failures.push(`the other documented route was never tried: ${JSON.stringify(seen)}`);
-    eq("and it carries the documented value", seen[firstAlt], 'x-api-key:Bearer sk-kie-abcdefgh12');
+    const firstAlt = seen.findIndex((h) => h === "x-api-key:Bearer sk-kie-abcdefgh12");
+    if (firstAlt < 1) failures.push(`the documented "Bearer <key>" route was never tried: ${JSON.stringify(seen)}`);
     eq("and that one is reported as the way in", r.route.auth, "x-api-key-bearer");
     eq("the model then counts as working", r.model, cases.models[0][0]);
     if (!/only answered/.test(r.verdict))
       failures.push(`the working route must be stated: ${r.verdict}`);
-    if (seen.slice(firstAlt).some((h) => !h.startsWith("x-api-key:Bearer")))
+    if (seen.slice(firstAlt).some((h) => h !== "x-api-key:Bearer sk-kie-abcdefgh12"))
       failures.push("every later probe must use the route that worked");
     // And a real call must then go out that way too.
     calls.length = 0;
@@ -299,7 +298,8 @@ try {
   eq("an unknown path falls back", P.routeFor(P.PROVIDERS.kie, { url: "https://evil.example/v1/messages" }).url, cases.endpoints.kie);
   eq("an unknown auth falls back", P.routeFor(P.PROVIDERS.kie, { auth: "basic" }).auth, "bearer");
   eq("Anthropic has exactly one route", P.routesFor(P.PROVIDERS.anthropic).length, 1);
-  eq("and kie.ai has one per path per header", P.routesFor(P.PROVIDERS.kie).length, 4);
+  eq("and kie.ai has one per path per header", P.routesFor(P.PROVIDERS.kie).length,
+     P.PROVIDERS.kie.urls.length * P.PROVIDERS.kie.authVariants.length);
   eq("the documented one first", P.routesFor(P.PROVIDERS.kie)[0], { url: cases.endpoints.kie, auth: "bearer" });
 
   // A 530 means the gateway could not reach its model. It is never a statement
@@ -348,6 +348,34 @@ try {
     failures.push("the self-test sent a kie key to Anthropic");
   if (seen.some((c) => (c.headers["x-api-key"] || "").length))
     failures.push("the self-test put a kie key in x-api-key");
+
+  // Every request must say stream: false. Anthropic defaults it to false;
+  // kie.ai's Claude endpoint documents `default: true`, so leaving it out asks
+  // that host for an SSE stream this client cannot read — which their adapter
+  // answers with a generic error, and which looks exactly like an outage.
+  {
+    const bodies = [];
+    globalThis.fetch = async (url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
+    };
+    await C.claudeParseNl("x", {}, "sk-kie-abcdefgh12", cases.models[0][0], "", P.PROVIDERS.kie);
+    await C.claudeExtract({
+      page_no: 1, page_text: "x", page_image_b64: "AAAA", scale: "unknown",
+      context: {}, apiKey: "sk-kie-abcdefgh12", model: cases.models[0][0],
+      provider: P.PROVIDERS.kie,
+    });
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/v1/models")) return err(404, "x");
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => reply, text: async () => JSON.stringify(reply) };
+    };
+    await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
+    if (!bodies.length) failures.push("no request was captured for the stream check");
+    const streaming = bodies.filter((b) => b.stream !== false);
+    if (streaming.length)
+      failures.push(`${streaming.length} of ${bodies.length} request(s) did not ask for a single reply`);
+  }
 
   // The ceiling the self-test discovered has to reach the wire, or the whole
   // exercise is theatre.

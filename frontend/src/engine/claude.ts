@@ -168,6 +168,12 @@ async function jsonCall(
       max_tokens: tokens,
       system: sys,
       messages: [{ role: "user", content }],
+      // Anthropic defaults this to false; kie.ai's Claude endpoint documents
+      // `default: true`, so leaving it out asks that host for an SSE stream —
+      // which this client cannot read, and which their adapter answers with a
+      // generic error. Both of their own examples set it explicitly. We parse
+      // one JSON reply, so say so every time.
+      stream: false,
     };
     let { res, error } = await post(p, apiKey, body, CALL_TIMEOUT_MS, route);
     // A gateway that cannot reach its own upstream says so with a 5xx and asks
@@ -498,7 +504,10 @@ export async function probeProvider(
   // answer describes what the user will experience. Substituting a catalogue id
   // here would report "your key is bad" when the truth is "that model is not
   // served" — the very confusion this test exists to clear up.
-  const one = (id: string) => ({ model: id, max_tokens: 64, messages: [{ role: "user", content: hi }] });
+  const one = (id: string) => ({
+    model: id, max_tokens: 64, stream: false,
+    messages: [{ role: "user", content: hi }],
+  });
   const first = await probe(p, apiKey, one(model), "model", `Model ${model}`, route);
   add(first);
 
@@ -574,6 +583,7 @@ export async function probeProvider(
       {
         model: working,
         max_tokens: 64,
+        stream: false,
         messages: [{
           role: "user",
           content: [

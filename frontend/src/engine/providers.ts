@@ -117,7 +117,10 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     // Bearer is the unambiguous one to send first; the self-test falls back to
     // the other if this host only honours that one.
     auth: "bearer",
-    authVariants: ["bearer", "x-api-key-bearer"],
+    // Their OpenAPI security scheme says Bearer; the endpoint's own notes say
+    // "use the auth configuration for X-Api-Key". Both are documented, so both
+    // are tried, plus the "Bearer <key>" spelling their Claude Code guide uses.
+    authVariants: ["bearer", "x-api-key", "x-api-key-bearer"],
     blurb: "Same Claude models through kie.ai credits — billed by kie.ai.",
     models: MODELS,
   },

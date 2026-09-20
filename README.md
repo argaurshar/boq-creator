@@ -118,11 +118,15 @@ carrying a tiny image. It reports which step failed, and fixes what it can:
 The probes cost a few tokens in total (each asks for one word, so a high
 `max_tokens` is only a ceiling, never a bill).
 
-One kie.ai deployment routes on the path and glues whatever follows its base
-onto the model name: a request to `…/claude/v1/messages` asking for
-`claude-sonnet-5` is recorded on their side as `claude-sonnet-5-v1messages`
-and fails as an unknown model, with a generic `api_error` and no credit
-charged. That is why the path is one of the things the test varies.
+Every request says `stream: false`. Anthropic defaults that to false, but
+kie.ai's Claude endpoint documents `default: true`, so omitting it asks that
+host for an SSE stream this client cannot read — and the adapter answers with
+a generic `api_error`, which looks exactly like an outage. Both of kie.ai's
+own examples set it explicitly.
+
+The **Model** field in the 🔑 dialog is free text: whatever is typed is what
+gets sent, so an id only a gateway knows about (`claude-sonnet-4-6`, a market
+SKU, anything their model page lists) works without waiting on a release.
 
 A 5xx from a gateway (502/503/504, or Cloudflare's 520–530) says its own
 upstream was unreachable — nothing about the request. Those are retried with a
