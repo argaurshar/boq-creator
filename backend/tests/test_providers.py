@@ -99,9 +99,10 @@ def test_auth_variants_are_the_routes_each_host_documents():
 
     a, k = PROVIDERS["anthropic"], PROVIDERS["kie"]
     assert a["auth_variants"] == ["x-api-key"]
-    # kie.ai documents ANTHROPIC_AUTH_TOKEN (a bearer token) and
-    # ANTHROPIC_API_KEY holding the literal text "Bearer <key>".
-    assert k["auth_variants"] == ["bearer", "x-api-key-bearer"]
+    # kie.ai's OpenAPI security scheme says Bearer; the Claude endpoint's own
+    # notes say "use the auth configuration for X-Api-Key"; and their Claude
+    # Code guide spells ANTHROPIC_API_KEY as the literal "Bearer <key>".
+    assert k["auth_variants"] == ["bearer", "x-api-key", "x-api-key-bearer"]
     for p in PROVIDERS.values():
         assert p["auth"] == p["auth_variants"][0]
 
@@ -116,7 +117,7 @@ def test_auth_variants_are_the_routes_each_host_documents():
         assert len(sent) == 1
 
     # A variant a provider does not document falls back to its default.
-    assert auth_variant_for(k, "x-api-key") == "bearer"
+    assert auth_variant_for(k, "basic") == "bearer"
     assert auth_variant_for(k, "") == "bearer"
     assert auth_variant_for(a, "bearer") == "x-api-key"
     assert auth_variant_for(k, "x-api-key-bearer") == "x-api-key-bearer"
@@ -136,11 +137,11 @@ def test_routes_are_every_documented_way_to_reach_a_host():
 
     assert routes_for(a) == [{"url": a["url"], "auth": "x-api-key"}]
     assert routes_for(k) == [
-        {"url": k["url"], "auth": "bearer"},
-        {"url": k["base_url"], "auth": "bearer"},
-        {"url": k["url"], "auth": "x-api-key-bearer"},
-        {"url": k["base_url"], "auth": "x-api-key-bearer"},
+        {"url": url, "auth": auth}
+        for auth in ("bearer", "x-api-key", "x-api-key-bearer")
+        for url in (k["url"], k["base_url"])
     ]
+    assert len(routes_for(k)) == len(k["urls"]) * len(k["auth_variants"])
 
     # A route a provider does not document is never used, however it arrived.
     assert route_for(k, {"url": "https://evil.example/v1/messages"})["url"] == k["url"]

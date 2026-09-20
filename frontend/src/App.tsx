@@ -658,10 +658,19 @@ function ApiKeyModal({
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [live, setLive] = useState<ProbeStep[]>([]);
   const [picked, setPicked] = useState("");
+  // Typed, not only picked: a gateway's catalogue is its own, and the id that
+  // works there may be one this app has never heard of. Whatever is typed is
+  // what gets sent.
+  const [modelText, setModelText] = useState(() => getModel());
+  const [modelId] = useState(() => `key-model-${++dialogSeq}`);
   // Where an unrecognised key would go if the user said so — named in full, so
   // a kie.ai key with an unexpected prefix is one click from working.
   const other = PROVIDER_LIST.find((p) => p.id !== active.id) || active;
-  const submit = () => onSubmit(raw, pref);
+  const submit = () => {
+    const m = modelText.trim();
+    if (m && m !== getModel()) onModel(m, active);
+    onSubmit(raw, pref);
+  };
 
   // Ask the host what it accepts, before blaming the user's key. A gateway
   // that refuses one model id, one reply length or images answers every real
@@ -674,7 +683,7 @@ function ApiKeyModal({
     setLive([]);
     setPicked("");
     try {
-      const chosen = getModel();
+      const chosen = modelText.trim() || getModel();
       // Each step lands on screen as it finishes: a test that walks a ladder of
       // requests must not look like a frozen dialog.
       const r = await probeProvider(key, chosen, active, (st) => setLive((prev) => [...prev, st]));
@@ -810,6 +819,7 @@ function ApiKeyModal({
                           : `Use ${id}`}
                         onClick={() => {
                           onModel(id, active);
+                          setModelText(id);
                           setPicked(id);
                         }}>
                         {id === probe.model ? `★ ${id}` : id}
@@ -828,6 +838,26 @@ function ApiKeyModal({
           )}
         </div>
       )}
+
+      <label className="field" htmlFor={modelId} style={{ marginTop: 12 }}>Model</label>
+      <input
+        id={modelId}
+        className="w"
+        list={`${modelId}-list`}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder={active.models[0][0]}
+        value={modelText}
+        onChange={(e) => setModelText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
+      />
+      <datalist id={`${modelId}-list`}>
+        {active.models.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      </datalist>
+      <div className="field-hint">
+        Sent to {active.short} exactly as typed — use whatever id their model
+        page lists. Test connection offers any it finds.
+      </div>
 
       <div className="row" style={{ marginTop: 10, alignItems: "center", gap: 8 }}>
         <a className="link" href={active.keyUrl} target="_blank" rel="noreferrer noopener">

@@ -822,6 +822,8 @@ body.paper .prov-opt.on { background: linear-gradient(180deg, #e3eefb, var(--pan
 .prov-status b { color: var(--text); }
 .prov-status.warn { color: var(--warn); }
 .prov-status.warn b { color: var(--warn); }
+/* static help under a field — not a live region like .prov-status */
+.field-hint { margin-top: 6px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
 
 /* what the host said when we asked it, one variable at a time */
 .probe { margin-top: 10px; padding: 9px 10px; border: 1px solid var(--line);

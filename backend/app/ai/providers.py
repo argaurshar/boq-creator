@@ -68,7 +68,11 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         # Bearer is the unambiguous one to send first; the browser self-test
         # falls back to the other if a host only honours that one.
         "auth": "bearer",
-        "auth_variants": ["bearer", "x-api-key-bearer"],
+        # Their OpenAPI security scheme says Bearer; the endpoint's own notes
+        # say "use the auth configuration for X-Api-Key". Both are documented,
+        # so both are tried, plus the "Bearer <key>" spelling their Claude Code
+        # guide uses.
+        "auth_variants": ["bearer", "x-api-key", "x-api-key-bearer"],
         "blurb": "Same Claude models through kie.ai credits — billed by kie.ai.",
         "models": MODELS,
     },
