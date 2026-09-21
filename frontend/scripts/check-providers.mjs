@@ -302,6 +302,28 @@ try {
      P.PROVIDERS.kie.urls.length * P.PROVIDERS.kie.authVariants.length);
   eq("the documented one first", P.routesFor(P.PROVIDERS.kie)[0], { url: cases.endpoints.kie, auth: "bearer" });
 
+  // A route ruled out on the way to one that works is not a failure, and must
+  // not be painted as one under a verdict that says "Working".
+  {
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).endsWith("/v1/models")) return err(404, "x");
+      return (init.headers || {})["x-api-key"] === "sk-kie-abcdefgh12" ? ok200 : err(530, "Internal error");
+    };
+    r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
+    eq("the plain x-api-key route is reachable", r.route.auth, "x-api-key");
+    if (!r.ok) failures.push(`a host that does everything must read as ok: ${r.verdict}`);
+    const bad = r.steps.filter((st) => !st.ok && !st.info);
+    if (bad.length)
+      failures.push(`ruled-out routes must not read as failures: ${JSON.stringify(bad.map((b) => b.label))}`);
+    if (!r.steps.some((st) => st.info && /ruled out/.test(st.detail)))
+      failures.push("a ruled-out route should say so");
+    // But a test that never found a way in keeps its crosses.
+    globalThis.fetch = async (url) => (String(url).endsWith("/v1/models") ? err(404, "x") : err(530, "Internal error"));
+    r = await C.probeProvider("sk-kie-abcdefgh12", cases.models[0][0], P.PROVIDERS.kie);
+    if (r.ok) failures.push("a host that answers nothing must not read as ok");
+    if (!r.steps.some((st) => !st.ok && !st.info)) failures.push("a real failure must still show as one");
+  }
+
   // A 530 means the gateway could not reach its model. It is never a statement
   // about the request, so it must not be read as one — and it is worth retrying.
   {

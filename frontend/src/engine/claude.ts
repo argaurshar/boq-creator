@@ -376,6 +376,8 @@ export interface ProbeStep {
 }
 
 export interface ProbeResult {
+  /** True when the host can do everything a drawing take-off needs. */
+  ok: boolean;
   steps: ProbeStep[];
   /** Model ids the host admits to serving, when it publishes a catalogue. */
   models: string[];
@@ -542,6 +544,18 @@ export async function probeProvider(
     }
   }
   const keyOk = !!working;
+  // A route that did not answer, on the way to one that did, is a step in the
+  // search — not a failure of the test. Shown as a red cross it reads as
+  // "broken" even under a verdict that says "Working", so once something
+  // answers, the attempts before it become what they are: things we ruled out.
+  if (keyOk) {
+    for (const st of steps) {
+      if (!st.ok && (st.id === "model" || st.id === "auth")) {
+        st.info = true;
+        st.detail = st.detail ? `ruled out — ${st.detail}` : "ruled out";
+      }
+    }
+  }
 
   let cap = 0;
   let lengthOk = false;
@@ -635,5 +649,5 @@ export async function probeProvider(
   if (routeStep) {
     verdict += ` ${p.short} only answered ${routeLabel(p, route)}, so that is how it will be called from now on.`;
   }
-  return { steps, models, cap, lengthOk, vision, model: working, route, verdict };
+  return { ok: keyOk && lengthOk && vision, steps, models, cap, lengthOk, vision, model: working, route, verdict };
 }

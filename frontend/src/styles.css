@@ -829,6 +829,8 @@ body.paper .prov-opt.on { background: linear-gradient(180deg, #e3eefb, var(--pan
 .probe { margin-top: 10px; padding: 9px 10px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--panel2); }
 .probe-verdict { font-size: 12px; color: var(--text); line-height: 1.5; }
+.probe-verdict.ok { color: var(--ok, #4ade80); }
+.probe-verdict.warn { color: var(--warn); }
 .probe-steps { list-style: none; margin: 7px 0 0; padding: 0;
   font-family: var(--font-mono); font-size: 11px; line-height: 1.7; }
 .probe-steps li.ok { color: var(--ok, #4ade80); }

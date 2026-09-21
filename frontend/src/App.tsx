@@ -700,7 +700,7 @@ function ApiKeyModal({
       if (r.model) setRoute(active, r.route);
     } catch (e: any) {
       setProbe({
-        steps: [], models: [], cap: 0, lengthOk: false, vision: false, model: "",
+        ok: false, steps: [], models: [], cap: 0, lengthOk: false, vision: false, model: "",
         route: { url: active.url, auth: active.auth },
         verdict: `The test could not run: ${String(e?.message || e)}`,
       });
@@ -793,7 +793,9 @@ function ApiKeyModal({
           )}
           {probe && (
             <>
-              <div className="probe-verdict">{probe.verdict}</div>
+              <div className={`probe-verdict ${probe.ok ? "ok" : "warn"}`}>
+                {probe.ok ? "✓" : "⚠"} {probe.verdict}
+              </div>
               {probe.steps.length > 0 && (
                 <ul className="probe-steps">
                   {probe.steps.map((st, i) => (
